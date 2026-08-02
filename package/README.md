@@ -269,20 +269,64 @@ The directory contains:
 
 ## Using in Tests
 
-Because the server is reprogrammable at runtime, a test suite starts one server, then in a per-test hook resets it and defines just the stubs that test needs:
+`aux4/mock` is a plain CLI, so it drops straight into an [`aux4/test`](https://hub.aux4.io/package/aux4/test) `.test.md` with `execute` blocks — **no test-framework plugin or extra dependency required**. Because the server is reprogrammable at runtime, the pattern is: start one server, then before each test reset it and define only the stubs that test needs.
 
-```bash
-# once, before the suite (inside the first test's execute block — the test
-# harness kills processes spawned in beforeAll)
-aux4 mock start --port 18080
+Two conventions matter:
 
-# before each test
-aux4 mock reset --port 18080
-aux4 mock stub --port 18080 --method POST --path /messages --status 201 --body '{"id":"msg_1"}'
+- **Start the server inside the first test's `execute` block, not `beforeAll`** — the test harness kills processes spawned in `beforeAll`, so the server would die before your tests run.
+- **Tear it down in `afterAll`** on a unique port (`mock stop` + a `pkill` fallback), so a failed test can't leak the server.
 
-# the test exercises the code, then asserts
-aux4 mock verify --port 18080 --method POST --path /messages --times 1
+A complete `.test.md` that mocks Google's userinfo endpoint and asserts the outgoing call:
 
-# after the suite
-aux4 mock stop --port 18080
+````markdown
+# gmail send against a mocked Google
+
+```afterAll
+aux4 mock stop --port 18080 2>/dev/null
+pkill -f "18080" 2>/dev/null
+true
 ```
+
+## sends the message and hits Google with a bearer token
+
+### start the mock and program the Google auth dance + the send endpoint
+
+```execute
+aux4 mock start --port 18080
+sleep 1
+aux4 mock preset google
+aux4 mock stub --port 18080 --method POST \
+  --path /gmail/v1/users/me/messages/send --status 200 \
+  --body '{"id":"18f...","labelIds":["SENT"]}'
+```
+
+```expect:partial
+stub POST /gmail/v1/users/me/messages/send -> 200
+```
+
+### exercise the code under test, pointed at the mock
+
+```execute
+GOOGLE_API_URL=http://localhost:18080/api \
+  aux4 gmail send --to sally@example.com --subject Hi --body "hello"
+```
+
+```expect:partial
+"labelIds":["SENT"]
+```
+
+### assert the outgoing request carried the recipient and a bearer token
+
+```execute
+aux4 mock verify --port 18080 --method POST \
+  --path /gmail/v1/users/me/messages/send \
+  --times 1 --body-contains "sally@example.com" \
+  --header "authorization=Bearer *"
+```
+
+```expect:partial
+verify ok: 1 match(es)
+```
+````
+
+To redefine behavior per test, add a `reset` at the top of each test's `execute` block (`aux4 mock reset --port 18080`) and re-stub — the same running server serves the new behavior immediately.
