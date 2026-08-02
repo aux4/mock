@@ -1,0 +1,75 @@
+{
+  "profiles": [
+    {
+      "name": "main",
+      "commands": [
+        {
+          "name": "build",
+          "execute": [
+            "aux4 builder all"
+          ],
+          "help": {
+            "text": "Build the app for all platforms"
+          }
+        },
+        {
+          "name": "builder",
+          "execute": [
+            "profile:builder"
+          ],
+          "help": {
+            "text": "build the app"
+          }
+        }
+      ]
+    },
+    {
+      "name": "builder",
+      "commands": [
+        {
+          "name": "darwin",
+          "execute": [
+            "GOOS=darwin GOARCH=amd64 go build -o package/dist/darwin/amd64/aux4-mock .",
+            "GOOS=darwin GOARCH=arm64 go build -o package/dist/darwin/arm64/aux4-mock ."
+          ],
+          "help": {
+            "text": "build the app for darwin"
+          }
+        },
+        {
+          "name": "linux",
+          "execute": [
+            "GOOS=linux GOARCH=amd64 go build -o package/dist/linux/amd64/aux4-mock .",
+            "GOOS=linux GOARCH=arm64 go build -o package/dist/linux/arm64/aux4-mock .",
+            "GOOS=linux GOARCH=386 go build -o package/dist/linux/386/aux4-mock ."
+          ],
+          "help": {
+            "text": "build the app for linux"
+          }
+        },
+        {
+          "name": "windows",
+          "execute": [
+            "GOOS=windows GOARCH=amd64 go build -o package/dist/windows/amd64/aux4-mock.exe .",
+            "GOOS=windows GOARCH=arm64 go build -o package/dist/windows/arm64/aux4-mock.exe .",
+            "GOOS=windows GOARCH=386 go build -o package/dist/windows/386/aux4-mock.exe ."
+          ],
+          "help": {
+            "text": "build the app for windows"
+          }
+        },
+        {
+          "name": "all",
+          "execute": [
+            "aux4 builder darwin",
+            "aux4 builder linux",
+            "aux4 builder windows"
+          ],
+          "help": {
+            "text": "build the app for all platforms"
+          }
+        }
+      ]
+    }
+  ]
+}

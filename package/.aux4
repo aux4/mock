@@ -1,0 +1,272 @@
+{
+  "scope": "aux4",
+  "name": "mock",
+  "version": "0.0.1",
+  "description": "Programmable HTTP mock server built on aux4/api for mocking external APIs in tests",
+  "license": "Apache-2.0",
+  "tags": [
+    "aux4",
+    "mock",
+    "http",
+    "test",
+    "api"
+  ],
+  "dependencies": [
+    "aux4/api"
+  ],
+  "profiles": [
+    {
+      "name": "main",
+      "commands": [
+        {
+          "name": "mock",
+          "execute": [
+            "profile:mock"
+          ],
+          "help": {
+            "text": "Programmable HTTP mock server for tests"
+          }
+        }
+      ]
+    },
+    {
+      "name": "mock",
+      "commands": [
+        {
+          "name": "start",
+          "execute": [
+            "${packageDir}/aux4-mock start param(port) param(stateDir) param(timeout)"
+          ],
+          "help": {
+            "text": "Start a mock server (launches aux4/api with a catch-all route, detached)",
+            "variables": [
+              {
+                "name": "port",
+                "text": "Port to run the mock server on",
+                "default": "7070"
+              },
+              {
+                "name": "stateDir",
+                "text": "Explicit state directory (default: ${TMPDIR:-/tmp}/aux4-mock/<port>)",
+                "default": ""
+              },
+              {
+                "name": "timeout",
+                "text": "Per-request handler timeout in milliseconds",
+                "default": "15000"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stop",
+          "execute": [
+            "${packageDir}/aux4-mock stop param(port) param(stateDir)"
+          ],
+          "help": {
+            "text": "Stop the mock server and clean up its state directory",
+            "variables": [
+              {
+                "name": "port",
+                "text": "Port of the mock server to stop",
+                "default": "7070"
+              },
+              {
+                "name": "stateDir",
+                "text": "Explicit state directory",
+                "default": ""
+              }
+            ]
+          }
+        },
+        {
+          "name": "stub",
+          "execute": [
+            "stdin:${packageDir}/aux4-mock stub param(port) param(stateDir) param(method) param(path) param(status) param(body) param(bodyFile) param(contentType) param(header**)"
+          ],
+          "help": {
+            "text": "Define or replace a stub response (matched by method + path)",
+            "variables": [
+              {
+                "name": "port",
+                "text": "Port of the mock server (derives stateDir)",
+                "default": "7070"
+              },
+              {
+                "name": "stateDir",
+                "text": "Explicit state directory",
+                "default": ""
+              },
+              {
+                "name": "method",
+                "text": "HTTP method to match (ANY matches any method)",
+                "default": "ANY"
+              },
+              {
+                "name": "path",
+                "text": "Request path to match (required)"
+              },
+              {
+                "name": "status",
+                "text": "Response status code",
+                "default": "200"
+              },
+              {
+                "name": "body",
+                "text": "Inline response body (else --bodyFile, else stdin)",
+                "default": ""
+              },
+              {
+                "name": "bodyFile",
+                "text": "File to read the response body from",
+                "default": ""
+              },
+              {
+                "name": "contentType",
+                "text": "Response Content-Type (JSON body defaults to application/json)",
+                "default": ""
+              },
+              {
+                "name": "header",
+                "text": "Response header as key=value (repeatable)",
+                "default": "",
+                "multiple": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "reset",
+          "execute": [
+            "${packageDir}/aux4-mock reset param(port) param(stateDir) param(stubs) param(requests)"
+          ],
+          "help": {
+            "text": "Clear stubs and/or recorded requests (default: both)",
+            "variables": [
+              {
+                "name": "port",
+                "text": "Port of the mock server (derives stateDir)",
+                "default": "7070"
+              },
+              {
+                "name": "stateDir",
+                "text": "Explicit state directory",
+                "default": ""
+              },
+              {
+                "name": "stubs",
+                "text": "Clear only stubs when set to true",
+                "default": ""
+              },
+              {
+                "name": "requests",
+                "text": "Clear only recorded requests when set to true",
+                "default": ""
+              }
+            ]
+          }
+        },
+        {
+          "name": "requests",
+          "execute": [
+            "${packageDir}/aux4-mock requests param(port) param(stateDir) param(method) param(path)"
+          ],
+          "help": {
+            "text": "Print recorded requests as a JSON array (optionally filtered)",
+            "variables": [
+              {
+                "name": "port",
+                "text": "Port of the mock server (derives stateDir)",
+                "default": "7070"
+              },
+              {
+                "name": "stateDir",
+                "text": "Explicit state directory",
+                "default": ""
+              },
+              {
+                "name": "method",
+                "text": "Filter recorded requests by method",
+                "default": ""
+              },
+              {
+                "name": "path",
+                "text": "Filter recorded requests by path",
+                "default": ""
+              }
+            ]
+          }
+        },
+        {
+          "name": "verify",
+          "execute": [
+            "${packageDir}/aux4-mock verify param(port) param(stateDir) param(method) param(path) param(times) param(bodyContains:body-contains) param(header**)"
+          ],
+          "help": {
+            "text": "Assert a matching request was recorded (exit non-zero on failure)",
+            "variables": [
+              {
+                "name": "port",
+                "text": "Port of the mock server (derives stateDir)",
+                "default": "7070"
+              },
+              {
+                "name": "stateDir",
+                "text": "Explicit state directory",
+                "default": ""
+              },
+              {
+                "name": "method",
+                "text": "Match recorded requests by method",
+                "default": ""
+              },
+              {
+                "name": "path",
+                "text": "Match recorded requests by path",
+                "default": ""
+              },
+              {
+                "name": "times",
+                "text": "Exact number of matches expected (omit = at least 1)",
+                "default": ""
+              },
+              {
+                "name": "bodyContains",
+                "text": "Require the request body to contain this substring",
+                "default": ""
+              },
+              {
+                "name": "header",
+                "text": "Require a request header as key=value (repeatable)",
+                "default": "",
+                "multiple": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "respond",
+          "private": true,
+          "execute": [
+            "stdin:${packageDir}/aux4-mock respond param(stateDir) param(port)"
+          ],
+          "help": {
+            "text": "Mounted catch-all handler: reads the request event on stdin and prints the stubbed response",
+            "variables": [
+              {
+                "name": "stateDir",
+                "text": "State directory for the stub store and request journal",
+                "default": ""
+              },
+              {
+                "name": "port",
+                "text": "Server port (used to derive stateDir when not explicit)",
+                "default": "7070"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+.idea
+node_modules
+coverage
+local-test
+package/aux4-mock
+package/dist
+**/.DS_Store
+**/*.zip
