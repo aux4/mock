@@ -60,7 +60,7 @@ aux4 mock stub --path <path> [--method <method>] [--status <code>] \
   [--contentType <type>] \
   [--when-header key=value ...] [--when-query key=value ...] \
   [--when-body-contains <substring>] \
-  [--port <port>] [--stateDir <dir>]
+  [--port <port>] [--name <handle>] [--stateDir <dir>]
 ```
 
 --path                Request path to match (required)
@@ -74,6 +74,7 @@ aux4 mock stub --path <path> [--method <method>] [--status <code>] \
 --when-query          Match only when a request query param equals key=value (repeatable)
 --when-body-contains  Match only when the request body contains this substring
 --port                Port of the mock server, derives stateDir (default: 7070)
+--name                Address the server by handle instead of port (stateDir ${TMPDIR:-/tmp}/aux4-mock/name-<handle>)
 --stateDir            Explicit state directory
 
 #### Example

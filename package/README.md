@@ -376,7 +376,7 @@ true
 ```execute
 aux4 mock start --port 18080
 sleep 1
-aux4 mock preset google
+aux4 mock preset google --port 18080
 aux4 mock stub --port 18080 --method POST \
   --path /gmail/v1/users/me/messages/send --status 200 \
   --body '{"id":"18f...","labelIds":["SENT"]}'
@@ -397,18 +397,19 @@ GOOGLE_API_URL=http://localhost:18080/api \
 "labelIds":["SENT"]
 ```
 
-### assert the outgoing request carried the recipient and a bearer token
+### assert the outgoing request carried the recipient
 
 ```execute
 aux4 mock verify --port 18080 --method POST \
   --path /gmail/v1/users/me/messages/send \
-  --times 1 --body-contains "sally@example.com" \
-  --header "authorization=Bearer *"
+  --times 1 --body-contains "sally@example.com"
 ```
 
 ```expect:partial
 verify ok: 1 match(es)
 ```
 ````
+
+> **Note:** `verify --header key=value` matches the header value **exactly** — pass a concrete token (e.g. `--header "authorization=Bearer test-token"` when the code sends a known one). The trailing-`*` wildcard is only for **stub** gating (`mock stub --when-header authorization="Bearer *"`), not for `verify`.
 
 To redefine behavior per test, add a `reset` at the top of each test's `execute` block (`aux4 mock reset --port 18080`) and re-stub — the same running server serves the new behavior immediately.

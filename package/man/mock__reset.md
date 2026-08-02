@@ -7,12 +7,13 @@ By default it clears both stubs and requests. Pass `--stubs true` to clear only 
 #### Usage
 
 ```bash
-aux4 mock reset [--stubs true] [--requests true] [--port <port>] [--stateDir <dir>]
+aux4 mock reset [--stubs true] [--requests true] [--port <port>] [--name <handle>] [--stateDir <dir>]
 ```
 
 --stubs     Clear only stubs when set to true
 --requests  Clear only recorded requests when set to true
 --port      Port of the mock server, derives stateDir (default: 7070)
+--name      Address the server by handle instead of port (stateDir ${TMPDIR:-/tmp}/aux4-mock/name-<handle>)
 --stateDir  Explicit state directory
 
 #### Example

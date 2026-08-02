@@ -31,12 +31,13 @@ All overrides are optional with sane defaults; only a couple of common ones are 
 #### Usage
 
 ```bash
-aux4 mock preset <service> [--port <port>] [--stateDir <dir>] \
+aux4 mock preset <service> [--port <port>] [--name <handle>] [--stateDir <dir>] \
   [--accessToken <token>] [--email <email>] [--user <name>]
 ```
 
 <service>       One of: google, microsoft, x, aws, oauth (required)
 --port          Port of the running mock server, derives stateDir (default: 7070)
+--name          Address the server by handle instead of port (stateDir ${TMPDIR:-/tmp}/aux4-mock/name-<handle>)
 --stateDir      Explicit state directory
 --accessToken   Token returned by the token endpoint (default: mock-access-token)
 --email         Email in the userinfo/identity response (default: sally@example.com)

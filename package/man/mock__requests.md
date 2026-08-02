@@ -7,12 +7,13 @@ This is useful for debugging a failing test — inspect exactly what the code un
 #### Usage
 
 ```bash
-aux4 mock requests [--method <method>] [--path <path>] [--port <port>] [--stateDir <dir>]
+aux4 mock requests [--method <method>] [--path <path>] [--port <port>] [--name <handle>] [--stateDir <dir>]
 ```
 
 --method    Filter recorded requests by method
 --path      Filter recorded requests by path
 --port      Port of the mock server, derives stateDir (default: 7070)
+--name      Address the server by handle instead of port (stateDir ${TMPDIR:-/tmp}/aux4-mock/name-<handle>)
 --stateDir  Explicit state directory
 
 #### Example
