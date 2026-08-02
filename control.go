@@ -117,27 +117,45 @@ func runStub(args []string) {
 	}
 	defer unlock()
 
-	stubs := loadStubs(dir)
-	replaced := false
-	sig := matchSignature(stub.Match)
-	for i, s := range stubs {
-		// Replace only when method, path AND the predicate set are identical;
-		// otherwise stubs on the same method+path coexist (e.g. one gated on a
-		// header, one bare fallback).
-		if s.Method == stub.Method && s.Path == stub.Path && matchSignature(s.Match) == sig {
-			stubs[i] = stub
-			replaced = true
-			break
-		}
-	}
-	if !replaced {
-		stubs = append(stubs, stub)
-	}
+	stubs := upsertStub(loadStubs(dir), stub)
 	if err := saveStubs(dir, stubs); err != nil {
 		fmt.Fprintf(os.Stderr, "Error saving stub: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Printf("stub %s %s -> %d\n", stub.Method, stub.Path, stub.Status)
+}
+
+// upsertStub inserts stub into stubs, replacing an existing stub that shares the
+// same replace key (method + path + predicate set) or appending it otherwise.
+// Replace only when method, path AND the predicate set are identical; otherwise
+// stubs on the same method+path coexist (e.g. one gated on a header, one bare
+// fallback).
+func upsertStub(stubs []Stub, stub Stub) []Stub {
+	sig := matchSignature(stub.Match)
+	for i, s := range stubs {
+		if s.Method == stub.Method && s.Path == stub.Path && matchSignature(s.Match) == sig {
+			stubs[i] = stub
+			return stubs
+		}
+	}
+	return append(stubs, stub)
+}
+
+// registerStubs applies one or more stubs to the store under a single lock,
+// reusing the same replace-by-key semantics as `mock stub`. It never clears
+// existing stubs, so presets and later `mock stub` calls layer on top of each
+// other.
+func registerStubs(dir string, newStubs []Stub) error {
+	unlock, err := acquireLock(dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	stubs := loadStubs(dir)
+	for _, s := range newStubs {
+		stubs = upsertStub(stubs, s)
+	}
+	return saveStubs(dir, stubs)
 }
 
 // runReset clears the stub store and/or the request journal.

@@ -111,6 +111,74 @@ curl -s -X POST http://localhost:8080/api/login
 
 `--when-query` and `--when-body-contains` select between stubs on the same path the same way.
 
+## Mocking real services (presets)
+
+Most real APIs make you mock the same boilerplate before you can test anything interesting: an OAuth token endpoint, a userinfo/identity endpoint that returns `401` without a bearer token, and the service's specific error envelope. `mock preset <service>` registers all of that in one command, so your test only has to stub the business endpoints it actually cares about.
+
+```bash
+aux4 mock start --port 8080
+aux4 mock preset google --port 8080
+# preset google -> 5 stub(s)
+#   POST /token -> 200
+#   GET /oauth2/v2/userinfo -> 200 (gated)
+#   GET /oauth2/v2/userinfo -> 401
+#   GET /oauth2/v3/userinfo -> 200 (gated)
+#   GET /oauth2/v3/userinfo -> 401
+```
+
+Each identity endpoint is two stubs on the same path: a happy path gated on `Authorization: Bearer *` and a bare fallback returning the real `401` envelope. So a bearer token gets the identity; its absence gets Google's error shape:
+
+```bash
+# with a bearer token → 200 identity
+curl -s http://localhost:8080/api/oauth2/v2/userinfo -H 'Authorization: Bearer x'
+# {"email":"sally@example.com","email_verified":true,...,"sub":"1234567890"}
+
+# without one → 401 Google error envelope
+curl -s http://localhost:8080/api/oauth2/v2/userinfo
+# {"error":{"code":401,"message":"Request is missing required authentication credential...","status":"UNAUTHENTICATED"}}
+
+# the token endpoint returns a standard OAuth token response
+curl -s -X POST http://localhost:8080/api/token
+# {"access_token":"mock-access-token","expires_in":3599,"refresh_token":"mock-refresh-token","scope":"...","token_type":"Bearer"}
+```
+
+Presets are **additive** — they never clear existing stubs, so you layer business endpoints on top:
+
+```bash
+aux4 mock preset google --port 8080
+aux4 mock stub --port 8080 --method POST \
+  --path /gmail/v1/users/me/messages/send \
+  --status 200 --body '{"id":"msg_1","labelIds":["SENT"]}'
+# both the preset auth stubs and the Gmail send stub now serve
+```
+
+### Available presets
+
+| Service | Token endpoint | Identity endpoint (bearer-gated) | Unauthenticated envelope |
+|---------|----------------|----------------------------------|--------------------------|
+| `google` | `POST /token` | `GET /oauth2/v2/userinfo`, `GET /oauth2/v3/userinfo` | `{"error":{"code":401,"message":"…","status":"UNAUTHENTICATED"}}` |
+| `microsoft` | `POST /common/oauth2/v2.0/token` | `GET /me` (Graph) | `{"error":{"code":"InvalidAuthenticationToken","message":"…"}}` |
+| `x` | `POST /2/oauth2/token` | `GET /2/users/me` → `{"data":{…}}` | `{"title":"Unauthorized","type":"about:blank","status":401}` |
+| `aws` | — | — | — |
+| `oauth` | `POST /token` | `GET /userinfo` | `{"error":"invalid_token",…}` |
+
+**`aws` is intentionally minimal.** AWS does not use OAuth bearer auth (it uses SigV4 request signing with per-service XML/JSON payloads), so the preset ships only the STS `GetCallerIdentity` happy path — `POST /` whose request body contains `GetCallerIdentity` returns an identity JSON. For anything else, stub the specific endpoints with `mock stub`.
+
+**Base URLs and paths.** Presets stub each service's real path (`/token`, `/oauth2/v2/userinfo`, `/2/users/me`, …). Point the code-under-test's base URL at `http://localhost:<port>/api` and let it append the real path. For Microsoft, whose real token path has a `/{tenant}` segment, the preset stubs the concrete `/common/oauth2/v2.0/token`; point the client so the tenant lands on `common`, or add a tenant-specific token path with `mock stub`.
+
+### Overrides
+
+All overrides are optional with sane defaults. Only a couple of common ones are exposed so a test can assert a known identity:
+
+```bash
+aux4 mock preset oauth --port 8080 \
+  --accessToken TOK123 --email sally@corp.io --user "Sally Ride"
+```
+
+- `--accessToken` — token returned by the token endpoint (default `mock-access-token`)
+- `--email` — email in the userinfo/identity response (default `sally@example.com`)
+- `--user` — display name in the identity response (default `Sally`; `x` derives the handle from it)
+
 ## Commands
 
 | Command | Purpose |
@@ -118,6 +186,7 @@ curl -s -X POST http://localhost:8080/api/login
 | `mock start` | Start a detached mock server (launches `aux4/api` with a catch-all route) |
 | `mock stop` | Stop the server and clean up its state directory |
 | `mock stub` | Define or replace a stub response |
+| `mock preset` | Register a canned service preset (auth token + userinfo + error envelopes) |
 | `mock reset` | Clear stubs and/or the request journal (the per-test workhorse) |
 | `mock requests` | Print recorded requests as a JSON array |
 | `mock verify` | Assert a matching request was recorded (exit non-zero on failure) |
@@ -149,6 +218,15 @@ aux4 mock stub --path <path> [--method ANY] [--status 200] \
 ```
 
 Defines or replaces a stub, matched by (method, path, predicate set). The body may be given inline with `--body`, read from `--bodyFile`, or piped on stdin. When the body looks like JSON and no `--contentType` is given, `Content-Type: application/json` is set automatically. Add `--when-header`, `--when-query`, or `--when-body-contains` predicates to gate the stub on the incoming request — see [Request-matching predicates](#request-matching-predicates).
+
+### mock preset
+
+```bash
+aux4 mock preset <google|microsoft|x|aws|oauth> [--port 7070] \
+  [--accessToken <token>] [--email <email>] [--user <name>]
+```
+
+Registers a canned set of stubs for a well-known service — its OAuth token endpoint, its bearer-gated identity endpoint(s), and the matching `401` error envelope — so a test can stand up the auth dance with one command and stub only its business endpoints. Presets are additive (they never clear existing stubs), so they layer with `mock stub`. See [Mocking real services (presets)](#mocking-real-services-presets).
 
 ### mock reset
 
