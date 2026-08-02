@@ -8,9 +8,11 @@ import (
 	"time"
 )
 
-// Stub is a single programmed response. The optional Match field is reserved
-// for future request-matching predicates (header/query/body) and is not used
-// by the current exact method+path matcher.
+// Stub is a single programmed response. The optional Match field holds
+// request-matching predicates (header/query/body substring). A stub with no
+// Match is a fallback that matches any request to its method+path; a stub with
+// predicates only matches when every predicate holds and is evaluated with
+// higher priority than fallbacks.
 type Stub struct {
 	Method  string            `json:"method"`
 	Path    string            `json:"path"`
@@ -20,11 +22,40 @@ type Stub struct {
 	Match   *StubMatch        `json:"match,omitempty"`
 }
 
-// StubMatch is a reserved placeholder for MOCK-003 predicates.
+// StubMatch holds the request-matching predicates for a stub (MOCK-003).
+// Headers/Query are exact key=value equality (case-insensitive header name,
+// trailing "*" wildcard on the value). BodyContains is a request-body
+// substring. All present predicates must hold for the stub to match.
 type StubMatch struct {
-	Headers map[string]string `json:"headers,omitempty"`
-	Query   map[string]string `json:"query,omitempty"`
-	Body    string            `json:"body,omitempty"`
+	Headers      map[string]string `json:"headers,omitempty"`
+	Query        map[string]string `json:"query,omitempty"`
+	BodyContains string            `json:"bodyContains,omitempty"`
+}
+
+// predicateCount reports how many predicates this match specifies. More
+// predicates == more specific == higher priority when a request could match
+// several stubs. A nil match (fallback) has zero predicates.
+func (m *StubMatch) predicateCount() int {
+	if m == nil {
+		return 0
+	}
+	n := len(m.Headers) + len(m.Query)
+	if m.BodyContains != "" {
+		n++
+	}
+	return n
+}
+
+// matchSignature is a stable serialization of a stub's predicates, used as part
+// of the replace key so stubs on the same method+path but different predicates
+// coexist while an identical predicate set replaces in place. A nil match
+// yields the empty signature (the fallback slot).
+func matchSignature(m *StubMatch) string {
+	if m == nil || m.predicateCount() == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(m)
+	return string(b)
 }
 
 // RecordedRequest is one request the server observed.

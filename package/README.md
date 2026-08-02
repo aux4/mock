@@ -70,12 +70,46 @@ aux4 mock stop --port 8080
 
 A stub matches a request when:
 
-- the method matches (`ANY` matches every method), and
-- the path matches exactly (after normalizing to a single leading slash).
+- the method matches (`ANY` matches every method),
+- the path matches exactly (after normalizing to a single leading slash), and
+- every request-matching predicate on the stub (if any) holds.
 
-The first matching stub wins. Defining a stub for the same method+path again replaces it. When nothing matches, the server responds `404` with `{"error":"no matching stub","method":...,"path":...}` and still records the request, so you can verify calls that were meant to fail.
+Multiple stubs can share the same method+path, distinguished by their predicates. Matching is **most-specific-first**: a stub with more predicates is evaluated before one with fewer, and a stub with no predicates is the lowest-priority fallback. The first stub whose method, path and predicates all hold wins — priority is by predicate count, not definition order. When nothing matches, the server responds `404` with `{"error":"no matching stub","method":...,"path":...}` and still records the request, so you can verify calls that were meant to fail.
 
-Header, query, and body predicates (and multiple stubs per path with fallthrough) are planned but not yet available — matching is method + exact path for now.
+### Request-matching predicates
+
+Gate a stub on properties of the incoming request with these optional `mock stub` flags. When present, **all** predicates must hold:
+
+- `--when-header key=value` (repeatable) — the request must carry this header. The header name is compared case-insensitively, and a trailing `*` on the value is a wildcard prefix (e.g. `authorization=Bearer *`).
+- `--when-query key=value` (repeatable) — the named query parameter must equal `value` (also supports the trailing `*` wildcard).
+- `--when-body-contains <substring>` — the request body must contain the substring.
+
+The predicates are stored in the stub's `match` object: `{ "headers": { … }, "query": { … }, "bodyContains": "…" }`. Defining a stub replaces an existing one only when the method, path **and** predicate set are identical; stubs that differ by predicate coexist.
+
+### Fallthrough example: auth present → 200, absent → 401
+
+Program two stubs on the same `POST /login` — one gated on the `Authorization` header, one bare fallback:
+
+```bash
+# bare fallback (defined first — order does not matter)
+aux4 mock stub --port 8080 --method POST --path /login \
+  --status 401 --body '{"error":"unauthorized"}'
+
+# header-gated stub: any bearer token
+aux4 mock stub --port 8080 --method POST --path /login \
+  --status 200 --body '{"token":"ok"}' \
+  --when-header 'authorization=Bearer *'
+
+# with the header → 200 (predicated stub wins)
+curl -s -X POST http://localhost:8080/api/login -H 'Authorization: Bearer sally-token'
+# {"token":"ok"}
+
+# without it → 401 (falls through to the bare stub)
+curl -s -X POST http://localhost:8080/api/login
+# {"error":"unauthorized"}
+```
+
+`--when-query` and `--when-body-contains` select between stubs on the same path the same way.
 
 ## Commands
 
@@ -109,10 +143,12 @@ Stops the server via its pidfile (killing the whole process group), with a `pkil
 ```bash
 aux4 mock stub --path <path> [--method ANY] [--status 200] \
   [--body <json> | --bodyFile <file> | <stdin>] \
-  [--header key=value ...] [--contentType <type>] [--port 7070]
+  [--header key=value ...] [--contentType <type>] \
+  [--when-header key=value ...] [--when-query key=value ...] \
+  [--when-body-contains <substring>] [--port 7070]
 ```
 
-Defines or replaces a stub, matched by (method, path). The body may be given inline with `--body`, read from `--bodyFile`, or piped on stdin. When the body looks like JSON and no `--contentType` is given, `Content-Type: application/json` is set automatically.
+Defines or replaces a stub, matched by (method, path, predicate set). The body may be given inline with `--body`, read from `--bodyFile`, or piped on stdin. When the body looks like JSON and no `--contentType` is given, `Content-Type: application/json` is set automatically. Add `--when-header`, `--when-query`, or `--when-body-contains` predicates to gate the stub on the incoming request — see [Request-matching predicates](#request-matching-predicates).
 
 ### mock reset
 

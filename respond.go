@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
+	"strings"
 )
 
 // apiGatewayEvent is the subset of the AWS-API-Gateway event that aux4/api
@@ -71,8 +73,15 @@ func runRespond(stateDir string) {
 	})
 
 	stubs := loadStubs(stateDir)
+	// Evaluate most-specific-first: a stub with more predicates outranks one
+	// with fewer, and a no-predicate stub is the lowest-priority fallback. The
+	// sort is stable, so equally specific stubs keep their definition order
+	// (preserving the original first-match-wins behavior for plain stubs).
+	sort.SliceStable(stubs, func(i, j int) bool {
+		return stubs[i].Match.predicateCount() > stubs[j].Match.predicateCount()
+	})
 	for _, stub := range stubs {
-		if stubMatches(stub, method, path) {
+		if stubMatches(stub, method, path, event) {
 			headers := stub.Headers
 			if headers == nil {
 				headers = map[string]string{}
@@ -103,12 +112,61 @@ func runRespond(stateDir string) {
 	})
 }
 
-func stubMatches(stub Stub, method, path string) bool {
+// stubMatches reports whether a stub should serve this request. Method and path
+// must match, and every predicate in the stub's match (if any) must hold. A
+// stub with no match matches any request to its method+path.
+func stubMatches(stub Stub, method, path string, event apiGatewayEvent) bool {
 	if stub.Path != path {
 		return false
 	}
-	if stub.Method == "" || stub.Method == "ANY" {
+	if !(stub.Method == "" || stub.Method == "ANY" || stub.Method == method) {
+		return false
+	}
+	return matchPredicates(stub.Match, event)
+}
+
+// matchPredicates evaluates a stub's request-matching predicates against the
+// incoming event. A nil match always holds (fallback stub).
+func matchPredicates(m *StubMatch, event apiGatewayEvent) bool {
+	if m == nil {
 		return true
 	}
-	return stub.Method == method
+	for k, v := range m.Headers {
+		hv, ok := lookupHeader(event.Headers, k)
+		if !ok || !valueMatches(v, hv) {
+			return false
+		}
+	}
+	for k, v := range m.Query {
+		qv, ok := event.Query[k]
+		if !ok || !valueMatches(v, qv) {
+			return false
+		}
+	}
+	if m.BodyContains != "" && !strings.Contains(event.Body, m.BodyContains) {
+		return false
+	}
+	return true
+}
+
+// lookupHeader finds a header by name case-insensitively (HTTP header names are
+// case-insensitive and aux4/api may deliver them in any case).
+func lookupHeader(headers map[string]string, key string) (string, bool) {
+	for hk, hv := range headers {
+		if strings.EqualFold(hk, key) {
+			return hv, true
+		}
+	}
+	return "", false
+}
+
+// valueMatches compares a predicate value against an actual value. A trailing
+// "*" in the pattern is a wildcard: everything before it must be a prefix of the
+// actual value (e.g. "Bearer *" matches "Bearer abc123"). Otherwise it is exact
+// equality.
+func valueMatches(pattern, actual string) bool {
+	if strings.HasSuffix(pattern, "*") {
+		return strings.HasPrefix(actual, strings.TrimSuffix(pattern, "*"))
+	}
+	return pattern == actual
 }

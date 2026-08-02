@@ -82,10 +82,10 @@
         {
           "name": "stub",
           "execute": [
-            "stdin:${packageDir}/aux4-mock stub param(port) param(stateDir) param(method) param(path) param(status) param(body) param(bodyFile) param(contentType) param(header**)"
+            "stdin:${packageDir}/aux4-mock stub param(port) param(stateDir) param(method) param(path) param(status) param(body) param(bodyFile) param(contentType) param(header**) param(when-header**) param(when-query**) param(when-body-contains)"
           ],
           "help": {
-            "text": "Define or replace a stub response (matched by method + path)",
+            "text": "Define or replace a stub response (matched by method + path, optional request predicates)",
             "variables": [
               {
                 "name": "port",
@@ -131,6 +131,23 @@
                 "text": "Response header as key=value (repeatable)",
                 "default": "",
                 "multiple": true
+              },
+              {
+                "name": "when-header",
+                "text": "Only match when a request header equals key=value; value may end with * as a wildcard (repeatable)",
+                "default": "",
+                "multiple": true
+              },
+              {
+                "name": "when-query",
+                "text": "Only match when a request query param equals key=value (repeatable)",
+                "default": "",
+                "multiple": true
+              },
+              {
+                "name": "when-body-contains",
+                "text": "Only match when the request body contains this substring",
+                "default": ""
               }
             ]
           }

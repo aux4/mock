@@ -42,6 +42,11 @@ func runStub(args []string) {
 	contentType := fs.String("contentType", "", "response Content-Type")
 	var headers stringList
 	fs.Var(&headers, "header", "response header key=value (repeatable)")
+	var whenHeaders stringList
+	fs.Var(&whenHeaders, "when-header", "request header predicate key=value, trailing * wildcard (repeatable)")
+	var whenQueries stringList
+	fs.Var(&whenQueries, "when-query", "request query predicate key=value (repeatable)")
+	whenBodyContains := fs.String("when-body-contains", "", "request body substring predicate")
 	_ = fs.Parse(args)
 
 	if *path == "" {
@@ -85,12 +90,24 @@ func runStub(args []string) {
 		respHeaders["Content-Type"] = ct
 	}
 
+	// Build the request-matching predicates. A stub with no predicates keeps a
+	// nil match and acts as the fallback for its method+path.
+	match := &StubMatch{
+		Headers:      parseHeaderPairs(whenHeaders),
+		Query:        parseHeaderPairs(whenQueries),
+		BodyContains: *whenBodyContains,
+	}
+	if match.predicateCount() == 0 {
+		match = nil
+	}
+
 	stub := Stub{
 		Method:  strings.ToUpper(*method),
 		Path:    normalizePath(*path),
 		Status:  *status,
 		Headers: respHeaders,
 		Body:    resolvedBody,
+		Match:   match,
 	}
 
 	unlock, err := acquireLock(dir)
@@ -102,8 +119,12 @@ func runStub(args []string) {
 
 	stubs := loadStubs(dir)
 	replaced := false
+	sig := matchSignature(stub.Match)
 	for i, s := range stubs {
-		if s.Method == stub.Method && s.Path == stub.Path {
+		// Replace only when method, path AND the predicate set are identical;
+		// otherwise stubs on the same method+path coexist (e.g. one gated on a
+		// header, one bare fallback).
+		if s.Method == stub.Method && s.Path == stub.Path && matchSignature(s.Match) == sig {
 			stubs[i] = stub
 			replaced = true
 			break
