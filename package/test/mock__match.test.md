@@ -155,3 +155,22 @@ curl -s -w "\n%{http_code}" http://localhost:18772/api/account -H 'Authorization
 {"user":"sally"}
 200
 ```
+
+## unmatched request returns a diagnostic 404 with the /api-prefix hint
+
+Only `/2/tweets` is stubbed. A request that reaches the mock as `/api/2/tweets`
+(an accidental extra `/api` — the mock already serves under `/api`) does not
+match, so the 404 body lists the registered stubs and hints at the prefix
+mistake. The status stays 404 and the body keeps the `no matching stub` marker.
+
+### should program a single stub and hit it with an extra /api prefix
+
+```execute
+aux4 mock reset --port 18772 --stubs true
+aux4 mock stub --port 18772 --method POST --path /2/tweets --status 201 --body '{"ok":true}'
+curl -s -w "\n%{http_code}" -X POST http://localhost:18772/api/api/2/tweets
+```
+
+```expect:partial
+**"error":"no matching stub"**the mock serves under /api**"registeredStubs":["POST /2/tweets"]**404
+```

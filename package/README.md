@@ -71,10 +71,69 @@ aux4 mock stop --port 8080
 A stub matches a request when:
 
 - the method matches (`ANY` matches every method),
-- the path matches exactly (after normalizing to a single leading slash), and
+- the path matches — either exactly (after normalizing to a single leading slash) or via `{name}`/`{name...}` parameter tokens (see [Path parameters](#path-parameters)), and
 - every request-matching predicate on the stub (if any) holds.
 
-Multiple stubs can share the same method+path, distinguished by their predicates. Matching is **most-specific-first**: a stub with more predicates is evaluated before one with fewer, and a stub with no predicates is the lowest-priority fallback. The first stub whose method, path and predicates all hold wins — priority is by predicate count, not definition order. When nothing matches, the server responds `404` with `{"error":"no matching stub","method":...,"path":...}` and still records the request, so you can verify calls that were meant to fail.
+Multiple stubs can match the same request. Matching is **most-specific-first**, ranked by:
+
+1. more STATIC path segments (an exact `/2/tweets/123` beats `/2/tweets/{id}`),
+2. no greedy `{name...}` wildcard (`/2/tweets/{id}` beats `/2/tweets/{rest...}`),
+3. more request-matching predicates (a stub with predicates beats a bare fallback),
+4. declaration order (stable) as the final tie-breaker.
+
+The first stub whose method, path and predicates all hold wins — priority is by specificity, not definition order.
+
+When nothing matches, the server responds `404` and still records the request (so you can verify calls that were meant to fail). The 404 body is a diagnostic: it keeps the `no matching stub` marker, echoes the `method`/`path` as received, lists every `registeredStubs` entry, and — when it can — adds a `hint`:
+
+```json
+{
+  "error": "no matching stub",
+  "method": "POST",
+  "path": "/api/2/tweets",
+  "registeredStubs": ["POST /2/tweets"],
+  "hint": "did you mean POST /2/tweets? (you requested POST /api/2/tweets — the mock serves under /api, so the stub --path should omit the /api prefix)"
+}
+```
+
+The hint specifically calls out the most common mistake — the mock serves under `/api`, so `--path` must omit it — and also flags a same-path method mismatch or the closest registered path. Every unmatched request is also appended to `server.log` in the state directory, so a test author can `tail` it.
+
+### Path parameters
+
+A stub `--path` may contain parameter tokens, mirroring `aux4/api`:
+
+- **`{name}`** — matches exactly one path segment (no `/`). `--path /2/tweets/{id}` matches `/2/tweets/999` but not `/2/tweets/999/likes`.
+- **`{name...}`** — greedy: matches the rest of the path including `/`. `--path /files/{rest...}` matches `/files/a/b/c.txt`.
+
+A static path keeps matching exactly as before. Captured params are available to response templating as `${path.<name>}`.
+
+### Templated responses
+
+The response body and response header values are interpolated against the incoming request at respond time (always on). Placeholders use `${...}`:
+
+- **`${path.<name>}`** — a named path param captured by a `{name}`/`{name...}` token.
+- **`${query.<name>}`** — a query-string parameter.
+- **`${header.<name>}`** — a request header (name matched case-insensitively).
+- **`${body.<dotted.path>}`** — a field of the JSON request body; nested via dots, e.g. `${body.text}`, `${body.user.id}`.
+- **`${body}`** — the whole raw request body. **`${path}`** — the whole request path.
+
+An unknown or unresolved placeholder collapses to the empty string — the literal `${...}` is never left behind. To emit a literal `${`, write `$${`. The stub author owns the surrounding JSON quoting.
+
+```bash
+# echo a posted field back into the response (the x/create-tweet pattern)
+aux4 mock stub --port 8080 --method POST --path /2/tweets --status 201 \
+  --body '{"data":{"id":"1","text":"${body.text}"}}'
+curl -s -X POST http://localhost:8080/api/2/tweets \
+  -H 'Content-Type: application/json' -d '{"text":"hello sally"}'
+# {"data":{"id":"1","text":"hello sally"}}
+
+# capture the id from the path
+aux4 mock stub --port 8080 --method GET --path /2/tweets/{id} \
+  --body '{"data":{"id":"${path.id}"}}'
+curl -s http://localhost:8080/api/2/tweets/999
+# {"data":{"id":"999"}}
+```
+
+**Note:** an inline `--body '{"echo":"${body.text}"}'` reaches the store verbatim (single-quote it). The literal-escape `$${` is the exception — aux4's own `$$` handling mangles it on the command line — so when you need a literal `${...}` in the response, supply the body with `--bodyFile` instead of inline `--body`.
 
 ### Request-matching predicates
 

@@ -90,10 +90,11 @@ func resolveStateDir(stateDir, port string) string {
 	return filepath.Join(base, "aux4-mock", port)
 }
 
-func stubsPath(stateDir string) string    { return filepath.Join(stateDir, "stubs.json") }
-func requestsPath(stateDir string) string { return filepath.Join(stateDir, "requests.json") }
-func pidPath(stateDir string) string      { return filepath.Join(stateDir, "server.pid") }
-func lockPath(stateDir string) string     { return filepath.Join(stateDir, ".lock") }
+func stubsPath(stateDir string) string     { return filepath.Join(stateDir, "stubs.json") }
+func requestsPath(stateDir string) string  { return filepath.Join(stateDir, "requests.json") }
+func pidPath(stateDir string) string       { return filepath.Join(stateDir, "server.pid") }
+func lockPath(stateDir string) string      { return filepath.Join(stateDir, ".lock") }
+func serverLogPath(stateDir string) string { return filepath.Join(stateDir, "server.log") }
 
 // normalizePath collapses any leading slashes to exactly one so that an
 // incoming event path ("gmail/v1/x", no leading slash) and a stub path

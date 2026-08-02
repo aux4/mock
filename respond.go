@@ -73,56 +73,86 @@ func runRespond(stateDir string) {
 	})
 
 	stubs := loadStubs(stateDir)
-	// Evaluate most-specific-first: a stub with more predicates outranks one
-	// with fewer, and a no-predicate stub is the lowest-priority fallback. The
-	// sort is stable, so equally specific stubs keep their definition order
-	// (preserving the original first-match-wins behavior for plain stubs).
-	sort.SliceStable(stubs, func(i, j int) bool {
-		return stubs[i].Match.predicateCount() > stubs[j].Match.predicateCount()
-	})
-	for _, stub := range stubs {
-		if stubMatches(stub, method, path, event) {
-			headers := stub.Headers
-			if headers == nil {
-				headers = map[string]string{}
-			}
-			status := stub.Status
-			if status == 0 {
-				status = 200
-			}
-			writeResponse(apiGatewayResponse{
-				StatusCode: status,
-				Headers:    headers,
-				Body:       stub.Body,
-			})
-			return
+	// Compile each stub path once so we can both match parametric paths and rank
+	// stubs by specificity.
+	ranked := make([]rankedStub, len(stubs))
+	for i, s := range stubs {
+		ranked[i] = rankedStub{stub: s, pat: compilePathPattern(s.Path)}
+	}
+	// Evaluate most-specific-first. Specificity is, in order:
+	//   1. more STATIC path segments wins (an exact /2/tweets/123 beats /2/tweets/{id}),
+	//   2. a path without a greedy {name...} wildcard beats one with it
+	//      (/2/tweets/{id} beats /2/tweets/{rest...}),
+	//   3. more request-matching predicates wins (MOCK-003),
+	//   4. declaration order (the sort is stable), preserving the original
+	//      first-match-wins behavior for otherwise-equal stubs.
+	sort.SliceStable(ranked, func(i, j int) bool {
+		a, b := ranked[i], ranked[j]
+		if a.pat.staticSegs != b.pat.staticSegs {
+			return a.pat.staticSegs > b.pat.staticSegs
 		}
+		if a.pat.hasGreedy != b.pat.hasGreedy {
+			return !a.pat.hasGreedy // a non-greedy path is more specific
+		}
+		return a.stub.Match.predicateCount() > b.stub.Match.predicateCount()
+	})
+	for _, r := range ranked {
+		ok, params := matchStub(r.stub, r.pat, method, path, event)
+		if !ok {
+			continue
+		}
+		status := r.stub.Status
+		if status == 0 {
+			status = 200
+		}
+		// Interpolate request data into the response body and header values.
+		headers := map[string]string{}
+		for k, v := range r.stub.Headers {
+			headers[k] = interpolate(v, params, event, path)
+		}
+		writeResponse(apiGatewayResponse{
+			StatusCode: status,
+			Headers:    headers,
+			Body:       interpolate(r.stub.Body, params, event, path),
+		})
+		return
 	}
 
-	// No match: 404, but the request was still recorded above.
-	body, _ := json.Marshal(map[string]string{
-		"error":  "no matching stub",
-		"method": method,
-		"path":   path,
-	})
+	// No match: a diagnostic 404 (the request was still recorded above). The
+	// body lists the registered stubs and, when possible, a "did you mean" hint
+	// — most importantly the /api-prefix gotcha. The near-miss is also logged.
+	body, hint := buildNoMatchBody(stubs, method, path)
+	logNearMiss(stateDir, method, path, hint)
 	writeResponse(apiGatewayResponse{
 		StatusCode: 404,
 		Headers:    map[string]string{"Content-Type": "application/json"},
-		Body:       string(body),
+		Body:       body,
 	})
 }
 
-// stubMatches reports whether a stub should serve this request. Method and path
-// must match, and every predicate in the stub's match (if any) must hold. A
-// stub with no match matches any request to its method+path.
-func stubMatches(stub Stub, method, path string, event apiGatewayEvent) bool {
-	if stub.Path != path {
-		return false
-	}
+// rankedStub pairs a stub with its compiled path pattern so respond can match
+// and rank it without recompiling.
+type rankedStub struct {
+	stub Stub
+	pat  *pathPattern
+}
+
+// matchStub reports whether a stub should serve this request and returns any
+// captured path params. Method and path (which may contain {name}/{name...}
+// tokens) must match, and every predicate in the stub's match (if any) must
+// hold. A stub with no match matches any request to its method+path.
+func matchStub(stub Stub, pat *pathPattern, method, path string, event apiGatewayEvent) (bool, map[string]string) {
 	if !(stub.Method == "" || stub.Method == "ANY" || stub.Method == method) {
-		return false
+		return false, nil
 	}
-	return matchPredicates(stub.Match, event)
+	ok, params := pat.matchPath(path)
+	if !ok {
+		return false, nil
+	}
+	if !matchPredicates(stub.Match, event) {
+		return false, nil
+	}
+	return true, params
 }
 
 // matchPredicates evaluates a stub's request-matching predicates against the

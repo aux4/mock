@@ -10,6 +10,36 @@ The response body may be provided three ways, in precedence order:
 
 When the resolved body looks like JSON (starts/ends with `{}` or `[]`) and no `--contentType` is given, the response `Content-Type` defaults to `application/json`. Additional response headers can be set with repeatable `--header key=value` flags.
 
+#### Path parameters
+
+A stub `--path` may contain parameter tokens, mirroring `aux4/api`:
+
+- **`{name}`** — matches exactly one path segment (no `/`). For example `--path /2/tweets/{id}` matches `/2/tweets/999` but not `/2/tweets/999/likes`.
+- **`{name...}`** — greedy: matches the rest of the path including any `/`. For example `--path /files/{rest...}` matches `/files/a/b/c.txt`.
+
+An exact (static) path keeps matching exactly as before. Captured params are exposed to response templating as `${path.<name>}` (see below).
+
+When several stubs could match the same concrete request, the **most specific** one wins, ranked by:
+
+1. more STATIC path segments (an exact `/2/tweets/123` beats `/2/tweets/{id}`),
+2. no greedy `{name...}` wildcard (`/2/tweets/{id}` beats `/2/tweets/{rest...}`),
+3. more request-matching predicates (see below),
+4. declaration order (stable) as the final tie-breaker.
+
+#### Templated responses
+
+The response body and response header values are interpolated against the incoming request at respond time. Interpolation is always on. Placeholders use `${...}`:
+
+- **`${path.<name>}`** — a named path param captured by a `{name}`/`{name...}` token.
+- **`${query.<name>}`** — a query-string parameter.
+- **`${header.<name>}`** — a request header (the name is matched case-insensitively).
+- **`${body.<dotted.path>}`** — a field of the request body when it parses as JSON; nested fields use dots, e.g. `${body.text}` or `${body.user.id}`.
+- **`${body}`** — the whole raw request body. **`${path}`** — the whole request path.
+
+An unknown or unresolved placeholder collapses to the empty string — the literal `${...}` is never left behind. To emit a literal `${`, write `$${`. The stub author owns the surrounding JSON quoting, e.g. `--body '{"echo":"${body.text}"}'`.
+
+**Note:** an inline `--body '{"echo":"${body.text}"}'` reaches the stub store verbatim (single-quote it so the shell does not expand it). The literal-escape `$${` is the exception — aux4's own `$$` handling mangles it on the command line — so when you need a literal `${...}` in the response, supply the body with `--bodyFile` (read raw) instead of inline `--body`.
+
 #### Request-matching predicates
 
 A stub can be gated on properties of the incoming request. When present, **every** predicate must hold for the stub to match:
@@ -76,4 +106,25 @@ aux4 mock stub --port 8080 --method POST --path /login \
 ```text
 stub POST /login -> 401
 stub POST /login -> 200
+```
+
+#### Example: path param + echo a posted field
+
+A read endpoint captures the id from the path and echoes it back; a create
+endpoint echoes the posted `text` field into the response body.
+
+```bash
+aux4 mock stub --port 8080 --method GET --path /2/tweets/{id} \
+  --body '{"data":{"id":"${path.id}","text":"tweet ${path.id}"}}'
+aux4 mock stub --port 8080 --method POST --path /2/tweets --status 201 \
+  --body '{"data":{"id":"1","text":"${body.text}"}}'
+```
+
+```bash
+curl -s http://localhost:8080/api/2/tweets/999
+# {"data":{"id":"999","text":"tweet 999"}}
+
+curl -s -X POST http://localhost:8080/api/2/tweets \
+  -H 'Content-Type: application/json' -d '{"text":"hello sally"}'
+# {"data":{"id":"1","text":"hello sally"}}
 ```
