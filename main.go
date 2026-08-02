@@ -24,7 +24,7 @@ func main() {
 		_ = fs.Parse(args)
 		dir := *stateDir
 		if dir == "" {
-			dir = resolveStateDir("", *port)
+			dir = resolveStateDir("", "", *port)
 		}
 		runRespond(dir)
 	case "start":

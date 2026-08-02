@@ -72,10 +72,15 @@ func nowTs() string {
 	return time.Now().UTC().Format(time.RFC3339)
 }
 
-// resolveStateDir returns the state directory for the given explicit stateDir
-// or, when empty, derives it deterministically from the port so every command
-// (control plane and data plane) agrees on the same location.
-func resolveStateDir(stateDir, port string) string {
+// resolveStateDir returns the state directory for a command. Precedence is
+// explicit stateDir > name > port, so a server can be addressed by a stable
+// handle (--name) without knowing which port it landed on, while the classic
+// port-derived location keeps working unchanged.
+//
+//   - explicit --stateDir <dir>  -> that directory (made absolute)
+//   - --name <handle>            -> ${TMPDIR:-/tmp}/aux4-mock/<handle>
+//   - otherwise                  -> ${TMPDIR:-/tmp}/aux4-mock/<port>
+func resolveStateDir(stateDir, name, port string) string {
 	if stateDir != "" {
 		abs, err := filepath.Abs(stateDir)
 		if err == nil {
@@ -87,14 +92,47 @@ func resolveStateDir(stateDir, port string) string {
 	if base == "" {
 		base = "/tmp"
 	}
+	if name != "" {
+		return filepath.Join(base, "aux4-mock", "name-"+sanitizeHandle(name))
+	}
 	return filepath.Join(base, "aux4-mock", port)
+}
+
+// sanitizeHandle keeps a --name handle to a single safe path segment so it can
+// never escape the aux4-mock state root via slashes or ".." traversal.
+func sanitizeHandle(name string) string {
+	name = strings.ReplaceAll(name, "/", "_")
+	name = strings.ReplaceAll(name, "\\", "_")
+	name = strings.ReplaceAll(name, "..", "_")
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "default"
+	}
+	return name
 }
 
 func stubsPath(stateDir string) string     { return filepath.Join(stateDir, "stubs.json") }
 func requestsPath(stateDir string) string  { return filepath.Join(stateDir, "requests.json") }
 func pidPath(stateDir string) string       { return filepath.Join(stateDir, "server.pid") }
+func portPath(stateDir string) string      { return filepath.Join(stateDir, "port") }
 func lockPath(stateDir string) string      { return filepath.Join(stateDir, ".lock") }
 func serverLogPath(stateDir string) string { return filepath.Join(stateDir, "server.log") }
+
+// savePort persists the port a server actually bound to, so name-addressed
+// commands (and stop's pkill fallback) can recover it without the caller
+// tracking the chosen ephemeral port.
+func savePort(stateDir, port string) error {
+	return os.WriteFile(portPath(stateDir), []byte(port), 0600)
+}
+
+// loadPort reads the persisted port for a state directory, or "" if absent.
+func loadPort(stateDir string) string {
+	data, err := os.ReadFile(portPath(stateDir))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
 
 // normalizePath collapses any leading slashes to exactly one so that an
 // incoming event path ("gmail/v1/x", no leading slash) and a stub path

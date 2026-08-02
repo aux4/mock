@@ -253,18 +253,20 @@ aux4 mock preset oauth --port 8080 \
 ### mock start
 
 ```bash
-aux4 mock start [--port 7070] [--stateDir <dir>] [--timeout 15000]
+aux4 mock start [--port <port|0|auto>] [--name <handle>] [--stateDir <dir>] [--timeout 15000]
 ```
 
-Resolves the state directory, recreates it fresh (clearing old stubs and the journal), launches `aux4/api` in the background, writes a pidfile, and prints the base URL `http://localhost:<port>`.
+Resolves the state directory, recreates it fresh (clearing old stubs and the journal), launches `aux4/api` in the background, writes a pidfile, and prints the base URL `http://localhost:<port>` on line 1 followed by the bare chosen port on line 2.
+
+Pass `--port 0` (or `--port auto`) to bind a free OS-assigned port instead of hand-picking one; the chosen port is printed and persisted to `<stateDir>/port`. Give the server a stable `--name <handle>` and every other command can address it by name without knowing the port — see [Addressing servers](#addressing-servers). With no `--name` and no `--port`, the server binds the default `7070`.
 
 ### mock stop
 
 ```bash
-aux4 mock stop [--port 7070] [--stateDir <dir>]
+aux4 mock stop [--port 7070] [--name <handle>] [--stateDir <dir>]
 ```
 
-Stops the server via its pidfile (killing the whole process group), with a `pkill` fallback, then removes the state directory.
+Stops the server via its pidfile (killing the whole process group), with a `pkill` fallback, then removes the state directory. When stopping a `--name`-addressed server it reads the persisted port so the fallback targets the right process.
 
 ### mock stub
 
@@ -307,23 +309,37 @@ Prints the recorded requests as a JSON array, optionally filtered by method and/
 
 ```bash
 aux4 mock verify [--method <m>] [--path <p>] [--times <n>] \
-  [--body-contains <str>] [--header key=value ...] [--port 7070]
+  [--body-contains <str> ...] [--header key=value ...] [--name <handle>] [--port 7070]
 ```
 
-Asserts that a matching request was recorded. Exits `0` when the assertion holds; exits non-zero with a diagnostic on stderr (expected vs. actual, plus every recorded request) otherwise. Omitting `--times` asserts at least one match; `--times <n>` asserts exactly `n`.
+Asserts that a matching request was recorded. Exits `0` when the assertion holds; exits non-zero with a diagnostic on stderr (expected vs. actual, the missing body substrings, plus every recorded request) otherwise. Omitting `--times` asserts at least one match; `--times <n>` asserts exactly `n`.
 
-## State Directory
+`--body-contains` is **repeatable with AND semantics**: `--body-contains a --body-contains b` passes only when a single recorded request's body contains **both** substrings. On failure the diagnostic names exactly which substrings were missing (`missing body substring(s): [...]`). `--header` is likewise repeatable (AND).
 
-Every command resolves to the same state directory for a given port, so the control plane and the running server agree on where stubs and requests live:
+## Addressing servers
 
-- explicit `--stateDir <dir>`, or
-- derived from the port as `${TMPDIR:-/tmp}/aux4-mock/<port>`.
+Every command resolves which server it targets with a fixed precedence: `--stateDir` > `--name` > `--port`.
 
-The directory contains:
+- **`--port <n>`** — the classic form. State lives at `${TMPDIR:-/tmp}/aux4-mock/<port>`. Fully backward compatible.
+- **`--name <handle>`** — address a server by a stable handle instead of a port. State lives at `${TMPDIR:-/tmp}/aux4-mock/name-<handle>`. Combine with `--port 0` on `start` so the OS assigns a free port and no test ever hand-picks one:
+
+  ```bash
+  URL=$(aux4 mock start --name gateway --port 0 | head -1)   # line 1 = base URL, line 2 = bare port
+  aux4 mock stub   --name gateway --method GET --path /health --status 200 --body '{"ok":true}'
+  # ... point the code under test at "$URL" ...
+  aux4 mock verify --name gateway --method GET --path /health
+  aux4 mock stop   --name gateway
+  ```
+
+  Two named servers started with `--port 0` get distinct free ports and never collide. The chosen port is also readable from `<stateDir>/port` (e.g. `${TMPDIR:-/tmp}/aux4-mock/name-gateway/port`).
+- **`--stateDir <dir>`** — pin the directory explicitly (highest precedence).
+
+The state directory contains:
 
 - `stubs.json` — the programmable stub store
 - `requests.json` — the recorded request journal
 - `server.pid` — the server process id
+- `port` — the port the server actually bound (persisted so `--name` commands can recover it)
 - `server.log` — the server's stdout/stderr
 
 ## Using in Tests
@@ -333,7 +349,14 @@ The directory contains:
 Two conventions matter:
 
 - **Start the server inside the first test's `execute` block, not `beforeAll`** — the test harness kills processes spawned in `beforeAll`, so the server would die before your tests run.
-- **Tear it down in `afterAll`** on a unique port (`mock stop` + a `pkill` fallback), so a failed test can't leak the server.
+- **Tear it down in `afterAll`** (`mock stop` + a `pkill` fallback), so a failed test can't leak the server.
+
+To avoid hand-picking a collision-free port per test file, start with a stable name and a free port, capture the base URL, and address every later command by name:
+
+```bash
+URL=$(aux4 mock start --name x-post --port 0 | head -1)
+# point the code under test at "$URL", then stub/verify --name x-post; stop --name x-post in afterAll
+```
 
 A complete `.test.md` that mocks Google's userinfo endpoint and asserts the outgoing call:
 

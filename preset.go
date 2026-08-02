@@ -241,6 +241,7 @@ func firstNonEmpty(vals ...string) string {
 func runPreset(args []string) {
 	fs := flag.NewFlagSet("preset", flag.ExitOnError)
 	port := fs.String("port", "7070", "server port (derives stateDir)")
+	name := fs.String("name", "", "stable handle of the server (derives stateDir)")
 	stateDir := fs.String("stateDir", "", "explicit state directory")
 	accessToken := fs.String("access-token", "mock-access-token", "token returned by the token endpoint")
 	email := fs.String("email", "sally@example.com", "email in the userinfo/identity response")
@@ -259,7 +260,7 @@ func runPreset(args []string) {
 		os.Exit(1)
 	}
 
-	dir := resolveStateDir(*stateDir, *port)
+	dir := resolveStateDir(*stateDir, *name, *port)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot create state dir: %v\n", err)
 		os.Exit(1)

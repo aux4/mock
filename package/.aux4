@@ -35,19 +35,24 @@
         {
           "name": "start",
           "execute": [
-            "${packageDir}/aux4-mock start param(port) param(stateDir) param(timeout)"
+            "${packageDir}/aux4-mock start param(port) param(name) param(stateDir) param(timeout)"
           ],
           "help": {
             "text": "Start a mock server (launches aux4/api with a catch-all route, detached)",
             "variables": [
               {
                 "name": "port",
-                "text": "Port to run the mock server on",
-                "default": "7070"
+                "text": "Port to run the mock server on (0 or auto = pick a free port; empty selects a free port when --name is set, else 7070)",
+                "default": ""
+              },
+              {
+                "name": "name",
+                "text": "Stable handle to address this server later without knowing its port",
+                "default": ""
               },
               {
                 "name": "stateDir",
-                "text": "Explicit state directory (default: ${TMPDIR:-/tmp}/aux4-mock/<port>)",
+                "text": "Explicit state directory (default: ${TMPDIR:-/tmp}/aux4-mock/name-<name> or /<port>)",
                 "default": ""
               },
               {
@@ -61,7 +66,7 @@
         {
           "name": "stop",
           "execute": [
-            "${packageDir}/aux4-mock stop param(port) param(stateDir)"
+            "${packageDir}/aux4-mock stop param(port) param(name) param(stateDir)"
           ],
           "help": {
             "text": "Stop the mock server and clean up its state directory",
@@ -70,6 +75,11 @@
                 "name": "port",
                 "text": "Port of the mock server to stop",
                 "default": "7070"
+              },
+              {
+                "name": "name",
+                "text": "Stable handle of the server to stop (reads its persisted port)",
+                "default": ""
               },
               {
                 "name": "stateDir",
@@ -82,7 +92,7 @@
         {
           "name": "stub",
           "execute": [
-            "stdin:${packageDir}/aux4-mock stub param(port) param(stateDir) param(method) param(path) param(status) param(body) param(bodyFile) param(contentType) param(header**) param(when-header**) param(when-query**) param(when-body-contains)"
+            "stdin:${packageDir}/aux4-mock stub param(port) param(name) param(stateDir) param(method) param(path) param(status) param(body) param(bodyFile) param(contentType) param(header**) param(when-header**) param(when-query**) param(when-body-contains)"
           ],
           "help": {
             "text": "Define or replace a stub response (matched by method + path, optional request predicates)",
@@ -91,6 +101,11 @@
                 "name": "port",
                 "text": "Port of the mock server (derives stateDir)",
                 "default": "7070"
+              },
+              {
+                "name": "name",
+                "text": "Stable handle of the server (derives stateDir; no --port needed)",
+                "default": ""
               },
               {
                 "name": "stateDir",
@@ -155,7 +170,7 @@
         {
           "name": "preset",
           "execute": [
-            "${packageDir}/aux4-mock preset param(port) param(stateDir) param(accessToken:access-token) param(email) param(user) value(service)"
+            "${packageDir}/aux4-mock preset param(port) param(name) param(stateDir) param(accessToken:access-token) param(email) param(user) value(service)"
           ],
           "help": {
             "text": "Register a canned service preset (auth token + userinfo + error envelopes) on the running server",
@@ -176,6 +191,11 @@
                 "name": "port",
                 "text": "Port of the mock server (derives stateDir)",
                 "default": "7070"
+              },
+              {
+                "name": "name",
+                "text": "Stable handle of the server (derives stateDir; no --port needed)",
+                "default": ""
               },
               {
                 "name": "stateDir",
@@ -203,7 +223,7 @@
         {
           "name": "reset",
           "execute": [
-            "${packageDir}/aux4-mock reset param(port) param(stateDir) param(stubs) param(requests)"
+            "${packageDir}/aux4-mock reset param(port) param(name) param(stateDir) param(stubs) param(requests)"
           ],
           "help": {
             "text": "Clear stubs and/or recorded requests (default: both)",
@@ -212,6 +232,11 @@
                 "name": "port",
                 "text": "Port of the mock server (derives stateDir)",
                 "default": "7070"
+              },
+              {
+                "name": "name",
+                "text": "Stable handle of the server (derives stateDir; no --port needed)",
+                "default": ""
               },
               {
                 "name": "stateDir",
@@ -234,7 +259,7 @@
         {
           "name": "requests",
           "execute": [
-            "${packageDir}/aux4-mock requests param(port) param(stateDir) param(method) param(path)"
+            "${packageDir}/aux4-mock requests param(port) param(name) param(stateDir) param(method) param(path)"
           ],
           "help": {
             "text": "Print recorded requests as a JSON array (optionally filtered)",
@@ -243,6 +268,11 @@
                 "name": "port",
                 "text": "Port of the mock server (derives stateDir)",
                 "default": "7070"
+              },
+              {
+                "name": "name",
+                "text": "Stable handle of the server (derives stateDir; no --port needed)",
+                "default": ""
               },
               {
                 "name": "stateDir",
@@ -265,7 +295,7 @@
         {
           "name": "verify",
           "execute": [
-            "${packageDir}/aux4-mock verify param(port) param(stateDir) param(method) param(path) param(times) param(bodyContains:body-contains) param(header**)"
+            "${packageDir}/aux4-mock verify param(port) param(name) param(stateDir) param(method) param(path) param(times) param(body-contains**) param(header**)"
           ],
           "help": {
             "text": "Assert a matching request was recorded (exit non-zero on failure)",
@@ -274,6 +304,11 @@
                 "name": "port",
                 "text": "Port of the mock server (derives stateDir)",
                 "default": "7070"
+              },
+              {
+                "name": "name",
+                "text": "Stable handle of the server (derives stateDir; no --port needed)",
+                "default": ""
               },
               {
                 "name": "stateDir",
@@ -296,9 +331,10 @@
                 "default": ""
               },
               {
-                "name": "bodyContains",
-                "text": "Require the request body to contain this substring",
-                "default": ""
+                "name": "body-contains",
+                "text": "Require the request body to contain this substring (repeatable; all must be present, AND)",
+                "default": "",
+                "multiple": true
               },
               {
                 "name": "header",

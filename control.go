@@ -33,6 +33,7 @@ func parseHeaderPairs(pairs []string) map[string]string {
 func runStub(args []string) {
 	fs := flag.NewFlagSet("stub", flag.ExitOnError)
 	port := fs.String("port", "7070", "server port (derives stateDir)")
+	name := fs.String("name", "", "stable handle of the server (derives stateDir)")
 	stateDir := fs.String("stateDir", "", "explicit state directory")
 	method := fs.String("method", "ANY", "HTTP method to match (ANY = any)")
 	path := fs.String("path", "", "request path to match (required)")
@@ -54,7 +55,7 @@ func runStub(args []string) {
 		os.Exit(1)
 	}
 
-	dir := resolveStateDir(*stateDir, *port)
+	dir := resolveStateDir(*stateDir, *name, *port)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot create state dir: %v\n", err)
 		os.Exit(1)
@@ -162,12 +163,13 @@ func registerStubs(dir string, newStubs []Stub) error {
 func runReset(args []string) {
 	fs := flag.NewFlagSet("reset", flag.ExitOnError)
 	port := fs.String("port", "7070", "server port (derives stateDir)")
+	name := fs.String("name", "", "stable handle of the server (derives stateDir)")
 	stateDir := fs.String("stateDir", "", "explicit state directory")
 	stubs := fs.String("stubs", "", "clear stubs only (true)")
 	requests := fs.String("requests", "", "clear requests only (true)")
 	_ = fs.Parse(args)
 
-	dir := resolveStateDir(*stateDir, *port)
+	dir := resolveStateDir(*stateDir, *name, *port)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot create state dir: %v\n", err)
 		os.Exit(1)
@@ -200,12 +202,13 @@ func runReset(args []string) {
 func runRequests(args []string) {
 	fs := flag.NewFlagSet("requests", flag.ExitOnError)
 	port := fs.String("port", "7070", "server port (derives stateDir)")
+	name := fs.String("name", "", "stable handle of the server (derives stateDir)")
 	stateDir := fs.String("stateDir", "", "explicit state directory")
 	method := fs.String("method", "", "filter by method")
 	path := fs.String("path", "", "filter by path")
 	_ = fs.Parse(args)
 
-	dir := resolveStateDir(*stateDir, *port)
+	dir := resolveStateDir(*stateDir, *name, *port)
 	reqs := loadRequests(dir)
 
 	filtered := make([]RecordedRequest, 0, len(reqs))
@@ -228,18 +231,21 @@ func runRequests(args []string) {
 func runVerify(args []string) {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
 	port := fs.String("port", "7070", "server port (derives stateDir)")
+	name := fs.String("name", "", "stable handle of the server (derives stateDir)")
 	stateDir := fs.String("stateDir", "", "explicit state directory")
 	method := fs.String("method", "", "match by method")
 	path := fs.String("path", "", "match by path")
 	timesStr := fs.String("times", "", "exact number of matches (omit = at least 1)")
-	bodyContains := fs.String("body-contains", "", "require request body substring")
+	var bodyContains stringList
+	fs.Var(&bodyContains, "body-contains", "require request body substring (repeatable, AND)")
 	var headers stringList
-	fs.Var(&headers, "header", "require request header key=value (repeatable)")
+	fs.Var(&headers, "header", "require request header key=value (repeatable, AND)")
 	_ = fs.Parse(args)
 
-	dir := resolveStateDir(*stateDir, *port)
+	dir := resolveStateDir(*stateDir, *name, *port)
 	reqs := loadRequests(dir)
 	wantHeaders := parseHeaderPairs(headers)
+	wantBody := nonEmpty(bodyContains)
 
 	times := -1
 	if strings.TrimSpace(*timesStr) != "" {
@@ -259,7 +265,7 @@ func runVerify(args []string) {
 		if *path != "" && r.Path != normalizePath(*path) {
 			continue
 		}
-		if *bodyContains != "" && !strings.Contains(r.Body, *bodyContains) {
+		if !bodyContainsAll(r.Body, wantBody) {
 			continue
 		}
 		if !headersContain(r.Headers, wantHeaders) {
@@ -285,13 +291,73 @@ func runVerify(args []string) {
 		expected = fmt.Sprintf("exactly %d", times)
 	}
 	fmt.Fprintf(os.Stderr, "verify failed: expected %s match(es), found %d\n", expected, matches)
-	fmt.Fprintf(os.Stderr, "criteria: method=%q path=%q body-contains=%q headers=%v\n",
-		*method, *path, *bodyContains, wantHeaders)
+	fmt.Fprintf(os.Stderr, "criteria: method=%q path=%q body-contains=%v headers=%v\n",
+		*method, *path, wantBody, wantHeaders)
+
+	// Point at the substrings that no candidate request body contained. Candidate
+	// = a recorded request that matched the method/path/header criteria, so the
+	// hint stays focused on why the body predicate failed rather than every stub.
+	if missing := missingBodySubstrings(reqs, *method, *path, wantHeaders, wantBody); len(missing) > 0 {
+		fmt.Fprintf(os.Stderr, "missing body substring(s): %v\n", missing)
+	}
+
 	fmt.Fprintf(os.Stderr, "recorded %d request(s):\n", len(reqs))
 	for _, r := range reqs {
 		fmt.Fprintf(os.Stderr, "  %s %s body=%s\n", r.Method, r.Path, r.Body)
 	}
 	os.Exit(1)
+}
+
+// nonEmpty drops blank entries so an empty --body-contains passed by aux4 (the
+// variable default) does not become a predicate that can never match.
+func nonEmpty(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// bodyContainsAll reports whether body contains every wanted substring (AND).
+func bodyContainsAll(body string, want []string) bool {
+	for _, sub := range want {
+		if !strings.Contains(body, sub) {
+			return false
+		}
+	}
+	return true
+}
+
+// missingBodySubstrings returns the wanted substrings that no candidate request
+// body contained. A candidate is a recorded request that satisfied the
+// method/path/header criteria, so the diagnostic names only the body substrings
+// that actually blocked the match.
+func missingBodySubstrings(reqs []RecordedRequest, method, path string, wantHeaders map[string]string, wantBody []string) []string {
+	missing := make([]string, 0, len(wantBody))
+	for _, sub := range wantBody {
+		found := false
+		for _, r := range reqs {
+			if method != "" && !strings.EqualFold(r.Method, method) {
+				continue
+			}
+			if path != "" && r.Path != normalizePath(path) {
+				continue
+			}
+			if !headersContain(r.Headers, wantHeaders) {
+				continue
+			}
+			if strings.Contains(r.Body, sub) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missing = append(missing, sub)
+		}
+	}
+	return missing
 }
 
 func headersContain(have, want map[string]string) bool {

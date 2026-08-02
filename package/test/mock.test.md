@@ -67,3 +67,47 @@ curl -s -w "\n%{http_code}" -X POST http://localhost:18771/api/messages -d '{"te
 ```expect:partial
 no matching stub**404
 ```
+
+## repeatable body-contains (AND semantics)
+
+### should record a request carrying several fields in its body
+
+```execute
+aux4 mock stub --port 18771 --method POST --path /orders --status 200 --body '{"ok":true}'
+curl -s -o /dev/null -X POST http://localhost:18771/api/orders -H 'Content-Type: application/json' -d '{"sku":"ABC","qty":3,"note":"gift for sally"}'
+echo recorded
+```
+
+```expect:partial
+recorded
+```
+
+### should pass when every body-contains substring is present
+
+```execute
+aux4 mock verify --port 18771 --method POST --path /orders --body-contains ABC --body-contains gift
+```
+
+```expect:partial
+verify ok: 1 match(es)
+```
+
+### should still work with a single body-contains
+
+```execute
+aux4 mock verify --port 18771 --method POST --path /orders --body-contains sally
+```
+
+```expect:partial
+verify ok: 1 match(es)
+```
+
+### should fail and name the missing substring when one is absent
+
+```execute
+aux4 mock verify --port 18771 --method POST --path /orders --body-contains ABC --body-contains WIDGET
+```
+
+```error:partial
+missing body substring(s): [WIDGET]
+```
