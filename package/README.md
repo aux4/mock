@@ -116,7 +116,9 @@ The response body and response header values are interpolated against the incomi
 - **`${body.<dotted.path>}`** — a field of the JSON request body; nested via dots, e.g. `${body.text}`, `${body.user.id}`.
 - **`${body}`** — the whole raw request body. **`${path}`** — the whole request path.
 
-An unknown or unresolved placeholder collapses to the empty string — the literal `${...}` is never left behind. To emit a literal `${`, write `$${`. The stub author owns the surrounding JSON quoting.
+An unknown or unresolved placeholder collapses to the empty string — the literal `${...}` is never left behind. The mock resolves each `${...}` **once** and splices the request value in verbatim, so a placeholder nested under a same-named key (e.g. `${body.channel}` inside a `channel` object) resolves cleanly instead of recursing. To emit a literal `${`, write `$${`. The stub author owns the surrounding JSON quoting.
+
+**Supply `${body.*}` templates with `--bodyFile`, not inline `--body`.** The inline `--body` flag value passes through aux4's own recursive `${...}` variable resolution *before* the mock sees it, and aux4 has a variable literally named `body` (the flag). So an inline `${body.*}` placeholder can be mis-resolved against the flag value itself — for a nested case like `--body '{"channel":{"id":"${body.channel}"}}'` it blows up into `{"id":"{"id":"{"id":"…` before ever reaching the mock. Put such bodies in a file and pass `--bodyFile` (or pipe on stdin): file/stdin content is read straight from disk and reaches the mock's single-pass resolver untouched. Templates that only use `${path.*}`, `${query.*}` or `${header.*}` are safe inline.
 
 ```bash
 # echo a posted field back into the response (the x/create-tweet pattern)
@@ -133,7 +135,7 @@ curl -s http://localhost:8080/api/2/tweets/999
 # {"data":{"id":"999"}}
 ```
 
-**Note:** an inline `--body '{"echo":"${body.text}"}'` reaches the store verbatim (single-quote it). The literal-escape `$${` is the exception — aux4's own `$$` handling mangles it on the command line — so when you need a literal `${...}` in the response, supply the body with `--bodyFile` instead of inline `--body`.
+**Note:** the literal-escape `$${` and any `${body.*}` template must be supplied with `--bodyFile` (or stdin), not inline `--body` — see the warning above. Templates using only `${path.*}`/`${query.*}`/`${header.*}` are safe inline (single-quote them so the shell does not expand them).
 
 ### Request-matching predicates
 
@@ -314,7 +316,11 @@ aux4 mock verify [--method <m>] [--path <p>] [--times <n>] \
 
 Asserts that a matching request was recorded. Exits `0` when the assertion holds; exits non-zero with a diagnostic on stderr (expected vs. actual, the missing body substrings, plus every recorded request) otherwise. Omitting `--times` asserts at least one match; `--times <n>` asserts exactly `n`.
 
+`--path` accepts the same `{name}`/`{name...}` parameter tokens as `mock stub`, so you can assert "some request to `/2/tweets/{id}`" without knowing the id (`{name}` matches one segment; `{name...}` matches the rest including `/`). A concrete `--path` still matches exactly.
+
 `--body-contains` is **repeatable with AND semantics**: `--body-contains a --body-contains b` passes only when a single recorded request's body contains **both** substrings. On failure the diagnostic names exactly which substrings were missing (`missing body substring(s): [...]`). `--header` is likewise repeatable (AND).
+
+**Quoting caveat:** a `--body-contains` value containing a single quote (`'`) cannot be passed reliably — aux4 single-quotes every argument to the mock binary without escaping an embedded `'`, so `--body-contains "\"raw\":'x'"` arrives as `"raw":x` and `--body-contains "it's"` errors with `unmatched '`. This is a core aux4 argument-quoting limitation, not a mock one. Assert on a distinctive **quote-free** substring instead.
 
 ## Addressing servers
 

@@ -247,6 +247,15 @@ func runVerify(args []string) {
 	wantHeaders := parseHeaderPairs(headers)
 	wantBody := nonEmpty(bodyContains)
 
+	// Compile the --path once so verify accepts the same {name}/{name...} tokens
+	// the stub matcher uses. A concrete path compiles to an anchored literal and
+	// still matches exactly (back-compat); a parametric path (e.g. /2/tweets/{id})
+	// matches any recorded path in that shape.
+	var pathPat *pathPattern
+	if *path != "" {
+		pathPat = compilePathPattern(normalizePath(*path))
+	}
+
 	times := -1
 	if strings.TrimSpace(*timesStr) != "" {
 		n, err := strconv.Atoi(strings.TrimSpace(*timesStr))
@@ -262,8 +271,10 @@ func runVerify(args []string) {
 		if *method != "" && !strings.EqualFold(r.Method, *method) {
 			continue
 		}
-		if *path != "" && r.Path != normalizePath(*path) {
-			continue
+		if pathPat != nil {
+			if ok, _ := pathPat.matchPath(r.Path); !ok {
+				continue
+			}
 		}
 		if !bodyContainsAll(r.Body, wantBody) {
 			continue
@@ -297,7 +308,7 @@ func runVerify(args []string) {
 	// Point at the substrings that no candidate request body contained. Candidate
 	// = a recorded request that matched the method/path/header criteria, so the
 	// hint stays focused on why the body predicate failed rather than every stub.
-	if missing := missingBodySubstrings(reqs, *method, *path, wantHeaders, wantBody); len(missing) > 0 {
+	if missing := missingBodySubstrings(reqs, *method, pathPat, wantHeaders, wantBody); len(missing) > 0 {
 		fmt.Fprintf(os.Stderr, "missing body substring(s): %v\n", missing)
 	}
 
@@ -334,7 +345,7 @@ func bodyContainsAll(body string, want []string) bool {
 // body contained. A candidate is a recorded request that satisfied the
 // method/path/header criteria, so the diagnostic names only the body substrings
 // that actually blocked the match.
-func missingBodySubstrings(reqs []RecordedRequest, method, path string, wantHeaders map[string]string, wantBody []string) []string {
+func missingBodySubstrings(reqs []RecordedRequest, method string, pathPat *pathPattern, wantHeaders map[string]string, wantBody []string) []string {
 	missing := make([]string, 0, len(wantBody))
 	for _, sub := range wantBody {
 		found := false
@@ -342,8 +353,10 @@ func missingBodySubstrings(reqs []RecordedRequest, method, path string, wantHead
 			if method != "" && !strings.EqualFold(r.Method, method) {
 				continue
 			}
-			if path != "" && r.Path != normalizePath(path) {
-				continue
+			if pathPat != nil {
+				if ok, _ := pathPat.matchPath(r.Path); !ok {
+					continue
+				}
 			}
 			if !headersContain(r.Headers, wantHeaders) {
 				continue

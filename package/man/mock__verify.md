@@ -5,11 +5,15 @@ The `verify` command asserts that the mock server recorded a request matching th
 Criteria are combined with AND:
 
 - `--method` — match the HTTP method (case-insensitive)
-- `--path` — match the exact normalized path
+- `--path` — match recorded paths. A concrete path matches exactly (as before); a path with parameter tokens matches by shape, using the same `{name}`/`{name...}` tokens the stub matcher uses:
+  - **`{name}`** matches exactly one path segment, so `--path /2/tweets/{id}` matches a recorded `/2/tweets/999` regardless of the id.
+  - **`{name...}`** greedily matches the rest of the path including `/`, so `--path '/files/{rest...}'` matches `/files/a/b/c.txt`.
 - `--body-contains` — require the request body to contain a substring. **Repeatable**: pass `--body-contains a --body-contains b` to require that a single recorded request's body contains **both** substrings (AND). When the assertion fails, the diagnostic lists exactly which substrings no candidate request body contained (`missing body substring(s): [...]`).
 - `--header key=value` — require a request header (repeatable, AND; header name case-insensitive)
 
 Count semantics: omitting `--times` asserts at least one match; `--times <n>` asserts exactly `n` matches.
+
+**Note on quoting `--body-contains`:** a `--body-contains` value that itself contains a single quote (`'`) cannot be passed through reliably — aux4 wraps every argument value in single quotes on the way to the mock binary and does not escape an embedded `'`, so `--body-contains "\"raw\":'x'"` arrives as `"raw":x` (quotes stripped) and `--body-contains "it's"` errors with `unmatched '`. This is a core aux4 argument-quoting limitation, not a mock one; the mock binary matches correctly on any substring it actually receives. Workaround: assert on a distinctive **quote-free** substring of the recorded body.
 
 The server is addressed by `--stateDir` > `--name` > `--port` (same precedence as every `mock` command), so a `--name`-addressed server needs no `--port`.
 
@@ -40,6 +44,16 @@ aux4 mock verify --name gateway \
   --path /orders \
   --body-contains "ABC" \
   --body-contains "gift"
+```
+
+```text
+verify ok: 1 match(es)
+```
+
+Assert that *some* request hit a parametric endpoint without knowing the id:
+
+```bash
+aux4 mock verify --name gateway --method GET --path /2/tweets/{id}
 ```
 
 ```text
