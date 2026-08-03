@@ -174,17 +174,19 @@ curl -s -X POST http://localhost:8080/api/login
 
 ## Mocking real services (presets)
 
-Most real APIs make you mock the same boilerplate before you can test anything interesting: an OAuth token endpoint, a userinfo/identity endpoint that returns `401` without a bearer token, and the service's specific error envelope. `mock preset <service>` registers all of that in one command, so your test only has to stub the business endpoints it actually cares about.
+Most real APIs make you mock the same boilerplate before you can test anything interesting: an OAuth token endpoint, a userinfo/identity endpoint that returns `401` without a bearer token, and the service's specific error envelope. A **service preset** registers all of that in one command, so your test only has to stub the business endpoints it actually cares about.
+
+Presets are **installable packages**, not built into the core. The core mock engine ships no presets and reserves no service names — so you (or anyone) can ship, and even override, a preset for any service without the core claiming the name. Each preset is a package named `community/mock-preset-<service>` that adds a `<service>` command under `mock preset` through aux4's `global.aux4` profile merge. Install it and the command appears; uninstall it and it is gone. The core never changes.
 
 ```bash
+aux4 aux4 pkger install community/mock-preset-google
 aux4 mock start --port 8080
 aux4 mock preset google --port 8080
-# preset google -> 5 stub(s)
-#   POST /token -> 200
-#   GET /oauth2/v2/userinfo -> 200 (gated)
-#   GET /oauth2/v2/userinfo -> 401
-#   GET /oauth2/v3/userinfo -> 200 (gated)
-#   GET /oauth2/v3/userinfo -> 401
+# stub POST /token -> 200
+# stub GET /oauth2/v2/userinfo -> 200
+# stub GET /oauth2/v2/userinfo -> 401
+# stub GET /oauth2/v3/userinfo -> 200
+# stub GET /oauth2/v3/userinfo -> 401
 ```
 
 Each identity endpoint is two stubs on the same path: a happy path gated on `Authorization: Bearer *` and a bare fallback returning the real `401` envelope. So a bearer token gets the identity; its absence gets Google's error shape:
@@ -203,7 +205,7 @@ curl -s -X POST http://localhost:8080/api/token
 # {"access_token":"mock-access-token","expires_in":3599,"refresh_token":"mock-refresh-token","scope":"...","token_type":"Bearer"}
 ```
 
-Presets are **additive** — they never clear existing stubs, so you layer business endpoints on top:
+Because a preset is just a sequence of `mock stub` calls, it is **additive** — it never clears existing stubs, so you layer business endpoints on top:
 
 ```bash
 aux4 mock preset google --port 8080
@@ -213,32 +215,122 @@ aux4 mock stub --port 8080 --method POST \
 # both the preset auth stubs and the Gmail send stub now serve
 ```
 
-### Available presets
+### Finding presets
 
-| Service | Token endpoint | Identity endpoint (bearer-gated) | Unauthenticated envelope |
-|---------|----------------|----------------------------------|--------------------------|
-| `google` | `POST /token` | `GET /oauth2/v2/userinfo`, `GET /oauth2/v3/userinfo` | `{"error":{"code":401,"message":"…","status":"UNAUTHENTICATED"}}` |
-| `microsoft` | `POST /common/oauth2/v2.0/token` | `GET /me` (Graph) | `{"error":{"code":"InvalidAuthenticationToken","message":"…"}}` |
-| `x` | `POST /2/oauth2/token` | `GET /2/users/me` → `{"data":{…}}` | `{"title":"Unauthorized","type":"about:blank","status":401}` |
-| `aws` | — | — | — |
-| `oauth` | `POST /token` | `GET /userinfo` | `{"error":"invalid_token",…}` |
-
-**`aws` is intentionally minimal.** AWS does not use OAuth bearer auth (it uses SigV4 request signing with per-service XML/JSON payloads), so the preset ships only the STS `GetCallerIdentity` happy path — `POST /` whose request body contains `GetCallerIdentity` returns an identity JSON. For anything else, stub the specific endpoints with `mock stub`.
-
-**Base URLs and paths.** Presets stub each service's real path (`/token`, `/oauth2/v2/userinfo`, `/2/users/me`, …). Point the code-under-test's base URL at `http://localhost:<port>/api` and let it append the real path. For Microsoft, whose real token path has a `/{tenant}` segment, the preset stubs the concrete `/common/oauth2/v2.0/token`; point the client so the tenant lands on `common`, or add a tenant-specific token path with `mock stub`.
-
-### Overrides
-
-All overrides are optional with sane defaults. Only a couple of common ones are exposed so a test can assert a known identity:
+List the presets available on your machine (i.e. the ones you have installed) with:
 
 ```bash
-aux4 mock preset oauth --port 8080 \
-  --accessToken TOK123 --email sally@corp.io --user "Sally Ride"
+aux4 mock presets
 ```
 
-- `--accessToken` — token returned by the token endpoint (default `mock-access-token`)
-- `--email` — email in the userinfo/identity response (default `sally@example.com`)
-- `--user` — display name in the identity response (default `Sally`; `x` derives the handle from it)
+```text
+Installed presets (apply with: aux4 mock preset <service> --port <port>):
+  google
+```
+
+With nothing installed it points you at installing one. Each preset accepts its own flags — see `aux4 mock preset <service> --help` after installing it. The reference preset `community/mock-preset-google` accepts `--accessToken`, `--email`, and `--user` so a test can assert a known identity:
+
+```bash
+aux4 mock preset google --port 8080 \
+  --accessToken TOK123 --email sally@corp.io --user "Sally"
+```
+
+**Base URLs and paths.** A preset stubs each service's real path (`/token`, `/oauth2/v2/userinfo`, …). Point the code-under-test's base URL at `http://localhost:<port>/api` and let it append the real path — the `/api` mount prefix is stripped before matching.
+
+### Writing your own preset package
+
+A preset package is a **pure `.aux4` package** (no binary, no bundle) that depends on `aux4/mock` and contributes one `<service>` command under the `mock:preset` profile. When installed, aux4 merges that command into `mock preset` so `aux4 mock preset <service>` just works — the core is never touched.
+
+The package `.aux4` needs three things:
+
+1. `"dependencies": ["aux4/mock"]` so installing it pulls in the mock engine.
+2. A re-declaration of the `mock` profile carrying the `preset` routing command (so `mock preset` resolves to the `mock:preset` profile the same way the core declares it). Merging is by name, so this is harmless.
+3. A `mock:preset` profile with your `<service>` command, whose `execute` registers the canned stubs by calling `aux4 mock stub --port param(port) ...` once per endpoint.
+
+A minimal `github` preset (one bearer-gated identity endpoint) looks like this:
+
+```json
+{
+  "scope": "community",
+  "name": "mock-preset-github",
+  "version": "0.0.1",
+  "description": "GitHub service preset for aux4/mock",
+  "dependencies": [
+    "aux4/mock"
+  ],
+  "profiles": [
+    {
+      "name": "main",
+      "commands": [
+        {
+          "name": "mock",
+          "execute": [
+            "profile:mock"
+          ],
+          "help": {
+            "text": "Programmable HTTP mock server for tests"
+          }
+        }
+      ]
+    },
+    {
+      "name": "mock",
+      "commands": [
+        {
+          "name": "preset",
+          "execute": [
+            "profile:mock:preset"
+          ],
+          "help": {
+            "text": "Apply a service preset to a running mock"
+          }
+        }
+      ]
+    },
+    {
+      "name": "mock:preset",
+      "commands": [
+        {
+          "name": "github",
+          "execute": [
+            "aux4 mock stub param(port) --method GET --path /user --status 200 --when-header 'authorization=Bearer *' --body value(identity)",
+            "aux4 mock stub param(port) --method GET --path /user --status 401 --body '{\"message\":\"Requires authentication\",\"status\":\"401\"}'"
+          ],
+          "help": {
+            "text": "Register a GitHub auth preset (bearer-gated GET /user)",
+            "variables": [
+              {
+                "name": "port",
+                "text": "Port of the running mock server",
+                "default": "7070"
+              },
+              {
+                "name": "user",
+                "text": "GitHub login returned by GET /user",
+                "default": "sally"
+              },
+              {
+                "name": "identity",
+                "text": "Identity JSON (derived from --user)",
+                "default": "{\"login\":\"${user}\",\"id\":1,\"type\":\"User\"}"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+Key points, in the order they bite you:
+
+- **Two stubs per gated endpoint.** Register the happy path with `--when-header 'authorization=Bearer *'` (the trailing `*` is a wildcard, so any token matches) and a bare fallback with no predicate that returns the service's real `401` envelope. The gated stub wins when a bearer token is present; the request falls through to the `401` otherwise.
+- **`param(x)` already includes the flag — never prefix it.** `param(port)` expands to `--port '7070'`, so write `aux4 mock stub param(port) param(name) param(stateDir) --method ...`, **not** `--port param(port)`. Prefixing produces `--port --port '7070'`, which silently mis-resolves the state directory so the stubs are written where the server isn't (the calls still print success). Pass the *pass-through* flags (port/name/stateDir) with bare `param(...)` — empty ones drop out automatically — and the *literal* flags you're setting (`--method`, `--path`, `--status`) as plain flags with `value(...)` for their values.
+- **Derive identity from flags with a defaulted variable.** Expose `--user`/`--email`/`--accessToken` as variables and interpolate them into a defaulted `identity`/`body` variable (`"default": "…${user}…"`) so overrides flow into the stub body. Pass it with `value(identity)`.
+- **Pure aux4, no code.** The whole preset is `mock stub` calls — no Go, no JS, no `lib/`, no `dist/`.
+
+See `community/mock-preset-google` for the fully worked reference (OAuth token endpoint + both userinfo versions + the Google `401` envelope, with `--accessToken`/`--email`/`--user` overrides).
 
 ## Commands
 
@@ -247,7 +339,8 @@ aux4 mock preset oauth --port 8080 \
 | `mock start` | Start a detached mock server (launches `aux4/api` with a catch-all route) |
 | `mock stop` | Stop the server and clean up its state directory |
 | `mock stub` | Define or replace a stub response |
-| `mock preset` | Register a canned service preset (auth token + userinfo + error envelopes) |
+| `mock preset` | Apply an installed service preset (routing point extended by `community/mock-preset-<service>` packages) |
+| `mock presets` | List the service presets installed on this machine |
 | `mock reset` | Clear stubs and/or the request journal (the per-test workhorse) |
 | `mock requests` | Print recorded requests as a JSON array |
 | `mock verify` | Assert a matching request was recorded (exit non-zero on failure) |
@@ -285,11 +378,18 @@ Defines or replaces a stub, matched by (method, path, predicate set). The body m
 ### mock preset
 
 ```bash
-aux4 mock preset <google|microsoft|x|aws|oauth> [--port 7070] \
-  [--accessToken <token>] [--email <email>] [--user <name>]
+aux4 mock preset <service> [--port 7070] [preset-specific flags]
 ```
 
-Registers a canned set of stubs for a well-known service — its OAuth token endpoint, its bearer-gated identity endpoint(s), and the matching `401` error envelope — so a test can stand up the auth dance with one command and stub only its business endpoints. Presets are additive (they never clear existing stubs), so they layer with `mock stub`. See [Mocking real services (presets)](#mocking-real-services-presets).
+Routing point into the `mock:preset` profile, which the core ships **empty**. Installing a `community/mock-preset-<service>` package adds a `<service>` command here (via `global.aux4` profile merge), making `aux4 mock preset <service>` stand up that service's auth dance in one command. With nothing installed, `aux4 mock preset <service>` reports `Command not found: <service>`. Presets are additive (they only call `mock stub`), so they layer with your own stubs. See [Mocking real services (presets)](#mocking-real-services-presets) and [Writing your own preset package](#writing-your-own-preset-package).
+
+### mock presets
+
+```bash
+aux4 mock presets
+```
+
+Lists the service presets available under `mock preset` — i.e. the `community/mock-preset-<service>` packages you have installed. With nothing installed it prints an install hint. Reflects exactly what is installed, with zero built-in service knowledge.
 
 ### mock reset
 
@@ -364,7 +464,7 @@ URL=$(aux4 mock start --name x-post --port 0 | head -1)
 # point the code under test at "$URL", then stub/verify --name x-post; stop --name x-post in afterAll
 ```
 
-A complete `.test.md` that mocks Google's userinfo endpoint and asserts the outgoing call:
+A complete `.test.md` that mocks Google's userinfo endpoint and asserts the outgoing call. It uses the `community/mock-preset-google` preset package for the auth dance — declare it in the CI test job with `packages: aux4/mock,community/mock-preset-google` (or install it locally):
 
 ````markdown
 # gmail send against a mocked Google

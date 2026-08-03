@@ -33,8 +33,8 @@ func main() {
 		runStop(args)
 	case "stub":
 		runStub(args)
-	case "preset":
-		runPreset(args)
+	case "presets":
+		runPresetList(args)
 	case "reset":
 		runReset(args)
 	case "requests":
@@ -50,5 +50,5 @@ func main() {
 
 func usage() {
 	fmt.Fprintf(os.Stderr, "Usage: aux4-mock <command> [options]\n")
-	fmt.Fprintf(os.Stderr, "Commands: respond, start, stop, stub, preset, reset, requests, verify\n")
+	fmt.Fprintf(os.Stderr, "Commands: respond, start, stop, stub, presets, reset, requests, verify\n")
 }

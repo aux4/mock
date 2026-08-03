@@ -9,7 +9,8 @@ Subcommands:
 - **`start`** — start a detached mock server
 - **`stop`** — stop the server and clean up its state
 - **`stub`** — define or replace a stub response
-- **`preset`** — register a canned service preset (auth token + userinfo + error envelopes)
+- **`preset`** — apply an installed service preset (extension point; presets are `community/mock-preset-<service>` packages)
+- **`presets`** — list the service presets installed on this machine
 - **`reset`** — clear stubs and/or the request journal
 - **`requests`** — print recorded requests
 - **`verify`** — assert a matching request was recorded
