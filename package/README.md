@@ -413,3 +413,60 @@ verify ok: 1 match(es)
 > **Note:** `verify --header key=value` matches the header value **exactly** — pass a concrete token (e.g. `--header "authorization=Bearer test-token"` when the code sends a known one). The trailing-`*` wildcard is only for **stub** gating (`mock stub --when-header authorization="Bearer *"`), not for `verify`.
 
 To redefine behavior per test, add a `reset` at the top of each test's `execute` block (`aux4 mock reset --port 18080`) and re-stub — the same running server serves the new behavior immediately.
+
+## Mocking aux4 commands
+
+HTTP stubs only reach packages that expose an API URL override; most do not. A **command
+stub** stands in for an aux4 command itself, using aux4 core's `replace` hook, so any command
+can be mocked — including one from another package — without that package supporting an
+override of its own.
+
+```
+> aux4 mock command --stateDir ./state --command "google:gmail/list" --output '{"messages":[]}'
+stubbed command google:gmail/list
+AUX4_AUX4_FILES=/path/to/state/commands.aux4
+```
+
+Stubs are written as hooks into a generated `.aux4` in the state directory. aux4 picks them up
+through `AUX4_AUX4_FILES`, so your own `.aux4` is never modified and the working directory does
+not matter:
+
+```
+> export AUX4_AUX4_FILES=./state/commands.aux4
+> aux4 google gmail list --query is:unread
+{"messages":[]}
+```
+
+The command pattern is `profile/command`; nested profiles keep their `:` separator, so
+`aux4 google gmail list` is `google:gmail/list`. Use `aux4 <command> --whereIsIt` to check a
+command's profile. `*` is a per-segment wildcard.
+
+### Narrowing a stub
+
+`--param` stubs only matching arguments, leaving the real command to run for everything else:
+
+```
+> aux4 mock command --stateDir ./state --command "main/deploy" --param env=staging --output "stubbed"
+```
+
+### Verifying calls
+
+Every stubbed call is recorded with the arguments as typed:
+
+```
+> aux4 mock invocations --stateDir ./state
+[ { "command": "main/deploy", "commandLine": "aux4 deploy", "params": "--env 'staging'", ... } ]
+
+> aux4 mock verify-command --stateDir ./state --command "main/deploy" --params-contains "staging"
+verify ok: 1 match(es)
+```
+
+`verify-command` exits non-zero when the expectation fails, so it works directly as a test
+assertion. `--times 0` asserts a command was **not** called.
+
+### Lifetime
+
+A stub keeps the real command from running, so `aux4 mock reset` clears command stubs along
+with HTTP stubs. Keep patterns narrow — prefer an exact `profile/command` over a broad
+wildcard — and reset between tests.
+

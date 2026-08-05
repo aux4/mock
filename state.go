@@ -80,6 +80,21 @@ func nowTs() string {
 //   - explicit --stateDir <dir>  -> that directory (made absolute)
 //   - --name <handle>            -> ${TMPDIR:-/tmp}/aux4-mock/<handle>
 //   - otherwise                  -> ${TMPDIR:-/tmp}/aux4-mock/<port>
+//
+// resolveCommandStateDir addresses command stubs, which need no server and therefore no
+// port. A port would only invite starting one. Explicit --stateDir wins, then --name, then a
+// single shared default.
+func resolveCommandStateDir(stateDir, name string) string {
+	if stateDir != "" || name != "" {
+		return resolveStateDir(stateDir, name, "")
+	}
+	base := os.Getenv("TMPDIR")
+	if base == "" {
+		base = "/tmp"
+	}
+	return filepath.Join(base, "aux4-mock", "commands")
+}
+
 func resolveStateDir(stateDir, name, port string) string {
 	if stateDir != "" {
 		abs, err := filepath.Abs(stateDir)

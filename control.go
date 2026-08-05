@@ -191,9 +191,14 @@ func runReset(args []string) {
 
 	if clearStubs {
 		_ = saveStubs(dir, []Stub{})
+		// Command stubs are cleared with the HTTP ones: a leftover `replace` hook keeps a
+		// real command from running, so a stub must never outlive the reset that retires it.
+		_ = saveCommandStubs(dir, []CommandStub{})
+		_ = writeCommandsAux4(dir, []CommandStub{})
 	}
 	if clearRequests {
 		_ = saveRequests(dir, []RecordedRequest{})
+		_ = saveInvocations(dir, []RecordedInvocation{})
 	}
 	fmt.Println("reset ok")
 }

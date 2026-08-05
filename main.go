@@ -41,6 +41,16 @@ func main() {
 		runRequests(args)
 	case "verify":
 		runVerify(args)
+	case "command":
+		runCommandStub(args)
+	case "record":
+		runRecord(args)
+	case "invocations":
+		runInvocations(args)
+	case "verify-command":
+		runVerifyCommand(args)
+	case "reset-commands":
+		runResetCommands(args)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		usage()
@@ -50,5 +60,5 @@ func main() {
 
 func usage() {
 	fmt.Fprintf(os.Stderr, "Usage: aux4-mock <command> [options]\n")
-	fmt.Fprintf(os.Stderr, "Commands: respond, start, stop, stub, preset, reset, requests, verify\n")
+	fmt.Fprintf(os.Stderr, "Commands: respond, start, stop, stub, preset, reset, requests, verify, command, record, invocations, verify-command, reset-commands\n")
 }
