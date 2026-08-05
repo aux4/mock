@@ -39,8 +39,8 @@ does not matter.
 ### should return the stubbed output instead of running the command
 
 ```execute
-aux4 mock command --stateDir ./state --command "main/deploy" --output "stubbed deploy" > /dev/null
-AUX4_AUX4_FILES="$(pwd)/target.aux4:$(pwd)/state/commands.aux4" aux4 deploy --env prod
+aux4 mock command --stateDir ${TMPDIR:-/tmp}/aux4-mock-cmdtest --command "main/deploy" --output "stubbed deploy" > /dev/null
+AUX4_AUX4_FILES="$(pwd)/target.aux4:${TMPDIR:-/tmp}/aux4-mock-cmdtest/commands.aux4" aux4 deploy --env prod
 ```
 
 ```expect
@@ -50,7 +50,7 @@ stubbed deploy
 ### should record the invocation with the arguments as typed
 
 ```execute
-aux4 mock invocations --stateDir ./state
+aux4 mock invocations --stateDir ${TMPDIR:-/tmp}/aux4-mock-cmdtest
 ```
 
 ```expect:partial
@@ -64,7 +64,7 @@ aux4 mock invocations --stateDir ./state
 ### should verify the command was called
 
 ```execute
-aux4 mock verify-command --stateDir ./state --command "main/deploy" --params-contains "prod"
+aux4 mock verify-command --stateDir ${TMPDIR:-/tmp}/aux4-mock-cmdtest --command "main/deploy" --params-contains "prod"
 ```
 
 ```expect:partial
@@ -74,7 +74,7 @@ aux4 mock verify-command --stateDir ./state --command "main/deploy" --params-con
 ### should fail verification for a command that was never called
 
 ```execute
-aux4 mock verify-command --stateDir ./state --command "main/release" 2>&1 || true
+aux4 mock verify-command --stateDir ${TMPDIR:-/tmp}/aux4-mock-cmdtest --command "main/release" 2>&1 || true
 ```
 
 ```expect:partial
@@ -88,9 +88,9 @@ A stub can be narrowed with `--param`, so the real command still runs for other 
 ### should stub only the matching parameter value
 
 ```execute
-aux4 mock reset --stateDir ./state > /dev/null
-aux4 mock command --stateDir ./state --command "main/deploy" --param env=staging --output "stubbed staging" > /dev/null
-AUX4_AUX4_FILES="$(pwd)/target.aux4:$(pwd)/state/commands.aux4" aux4 deploy --env staging
+aux4 mock reset-commands --stateDir ${TMPDIR:-/tmp}/aux4-mock-cmdtest > /dev/null
+aux4 mock command --stateDir ${TMPDIR:-/tmp}/aux4-mock-cmdtest --command "main/deploy" --param env=staging --output "stubbed staging" > /dev/null
+AUX4_AUX4_FILES="$(pwd)/target.aux4:${TMPDIR:-/tmp}/aux4-mock-cmdtest/commands.aux4" aux4 deploy --env staging
 ```
 
 ```expect
@@ -100,7 +100,7 @@ stubbed staging
 ### should let the real command run when the parameter does not match
 
 ```execute
-AUX4_AUX4_FILES="$(pwd)/target.aux4:$(pwd)/state/commands.aux4" aux4 deploy --env prod
+AUX4_AUX4_FILES="$(pwd)/target.aux4:${TMPDIR:-/tmp}/aux4-mock-cmdtest/commands.aux4" aux4 deploy --env prod
 ```
 
 ```expect
@@ -109,14 +109,14 @@ REAL DEPLOY RAN
 
 ## resetting
 
-A leftover stub would keep a real command from running, so reset retires them with the
-HTTP stubs.
+A leftover stub would keep a real command from running, so `reset-commands` retires them.
+Command stubs need no server, so they are reset without one.
 
 ### should stop stubbing after reset
 
 ```execute
-aux4 mock reset --stateDir ./state > /dev/null
-AUX4_AUX4_FILES="$(pwd)/target.aux4:$(pwd)/state/commands.aux4" aux4 deploy --env staging
+aux4 mock reset-commands --stateDir ${TMPDIR:-/tmp}/aux4-mock-cmdtest > /dev/null
+AUX4_AUX4_FILES="$(pwd)/target.aux4:${TMPDIR:-/tmp}/aux4-mock-cmdtest/commands.aux4" aux4 deploy --env staging
 ```
 
 ```expect

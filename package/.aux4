@@ -370,24 +370,19 @@
         {
           "name": "command",
           "execute": [
-            "${packageDir}/aux4-mock command param(port) param(name) param(stateDir) param(command) param(output) param(outputFile) param(exitCode) param(param**)"
+            "${packageDir}/aux4-mock command param(name) param(stateDir) param(command) param(output) param(outputFile) param(exitCode) param(param**)"
           ],
           "help": {
             "text": "Stub an aux4 command so it returns a canned result instead of running (prints the AUX4_AUX4_FILES path to export)",
             "variables": [
               {
-                "name": "port",
-                "text": "Port of the mock server (derives stateDir)",
-                "default": "7070"
-              },
-              {
                 "name": "name",
-                "text": "Stable handle of the server (derives stateDir; no --port needed)",
+                "text": "Stable handle for this set of stubs (derives stateDir)",
                 "default": ""
               },
               {
                 "name": "stateDir",
-                "text": "Explicit state directory",
+                "text": "Explicit state directory (no server involved)",
                 "default": ""
               },
               {
@@ -424,24 +419,19 @@
           "name": "record",
           "private": true,
           "execute": [
-            "${packageDir}/aux4-mock record param(port) param(name) param(stateDir) param(stub) param(command) param(commandLine) param(params)"
+            "${packageDir}/aux4-mock record param(name) param(stateDir) param(stub) param(command) param(commandLine) param(params)"
           ],
           "help": {
             "text": "Internal: called by a stub's replace hook to record the call and print the stubbed output",
             "variables": [
               {
-                "name": "port",
-                "text": "Port of the mock server (derives stateDir)",
-                "default": "7070"
-              },
-              {
                 "name": "name",
-                "text": "Stable handle of the server (derives stateDir; no --port needed)",
+                "text": "Stable handle for this set of stubs (derives stateDir)",
                 "default": ""
               },
               {
                 "name": "stateDir",
-                "text": "Explicit state directory",
+                "text": "Explicit state directory (no server involved)",
                 "default": ""
               },
               {
@@ -470,24 +460,19 @@
         {
           "name": "invocations",
           "execute": [
-            "${packageDir}/aux4-mock invocations param(port) param(name) param(stateDir)"
+            "${packageDir}/aux4-mock invocations param(name) param(stateDir)"
           ],
           "help": {
             "text": "Print recorded command invocations as a JSON array",
             "variables": [
               {
-                "name": "port",
-                "text": "Port of the mock server (derives stateDir)",
-                "default": "7070"
-              },
-              {
                 "name": "name",
-                "text": "Stable handle of the server (derives stateDir; no --port needed)",
+                "text": "Stable handle for this set of stubs (derives stateDir)",
                 "default": ""
               },
               {
                 "name": "stateDir",
-                "text": "Explicit state directory",
+                "text": "Explicit state directory (no server involved)",
                 "default": ""
               }
             ]
@@ -496,24 +481,19 @@
         {
           "name": "verify-command",
           "execute": [
-            "${packageDir}/aux4-mock verify-command param(port) param(name) param(stateDir) param(command) param(times) param(params-contains**)"
+            "${packageDir}/aux4-mock verify-command param(name) param(stateDir) param(command) param(times) param(params-contains**)"
           ],
           "help": {
             "text": "Assert a stubbed command was called (exit non-zero on failure)",
             "variables": [
               {
-                "name": "port",
-                "text": "Port of the mock server (derives stateDir)",
-                "default": "7070"
-              },
-              {
                 "name": "name",
-                "text": "Stable handle of the server (derives stateDir; no --port needed)",
+                "text": "Stable handle for this set of stubs (derives stateDir)",
                 "default": ""
               },
               {
                 "name": "stateDir",
-                "text": "Explicit state directory",
+                "text": "Explicit state directory (no server involved)",
                 "default": ""
               },
               {
@@ -532,6 +512,37 @@
                 "text": "Require the parameters to contain this substring (repeatable; all must be present, AND)",
                 "default": "",
                 "multiple": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "reset-commands",
+          "execute": [
+            "${packageDir}/aux4-mock reset-commands param(name) param(stateDir) param(stubs) param(invocations)"
+          ],
+          "help": {
+            "text": "Clear command stubs and recorded invocations (no server involved)",
+            "variables": [
+              {
+                "name": "name",
+                "text": "Stable handle for this set of stubs (derives stateDir)",
+                "default": ""
+              },
+              {
+                "name": "stateDir",
+                "text": "Explicit state directory (no server involved)",
+                "default": ""
+              },
+              {
+                "name": "stubs",
+                "text": "Clear command stubs only (true)",
+                "default": ""
+              },
+              {
+                "name": "invocations",
+                "text": "Clear recorded invocations only (true)",
+                "default": ""
               }
             ]
           }

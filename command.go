@@ -120,8 +120,7 @@ func shellQuote(value string) string {
 // runCommandStub registers a stand-in for an aux4 command.
 func runCommandStub(args []string) {
 	fs := flag.NewFlagSet("command", flag.ExitOnError)
-	port := fs.String("port", "7070", "server port (derives stateDir)")
-	name := fs.String("name", "", "stable handle of the server (derives stateDir)")
+	name := fs.String("name", "", "stable handle for this set of stubs (derives stateDir)")
 	stateDir := fs.String("stateDir", "", "explicit state directory")
 	command := fs.String("command", "", "command pattern to stub, e.g. google:gmail/list")
 	output := fs.String("output", "", "text the stubbed command prints")
@@ -146,7 +145,7 @@ func runCommandStub(args []string) {
 		body = string(data)
 	}
 
-	dir := resolveStateDir(*stateDir, *name, *port)
+	dir := resolveCommandStateDir(*stateDir, *name)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot create state directory: %v\n", err)
 		os.Exit(1)
@@ -180,8 +179,7 @@ func runCommandStub(args []string) {
 // arbitrary payload never has to survive shell quoting.
 func runRecord(args []string) {
 	fs := flag.NewFlagSet("record", flag.ExitOnError)
-	port := fs.String("port", "7070", "server port (derives stateDir)")
-	name := fs.String("name", "", "stable handle of the server (derives stateDir)")
+	name := fs.String("name", "", "stable handle for this set of stubs (derives stateDir)")
 	stateDir := fs.String("stateDir", "", "explicit state directory")
 	stub := fs.String("stub", "", "id of the stub standing in for the command")
 	command := fs.String("command", "", "command that was called")
@@ -189,7 +187,7 @@ func runRecord(args []string) {
 	params := fs.String("params", "", "parameters as typed")
 	_ = fs.Parse(args)
 
-	dir := resolveStateDir(*stateDir, *name, *port)
+	dir := resolveCommandStateDir(*stateDir, *name)
 
 	unlock, err := acquireLock(dir)
 	if err == nil {
@@ -226,12 +224,11 @@ func runRecord(args []string) {
 // runInvocations prints the recorded command invocations.
 func runInvocations(args []string) {
 	fs := flag.NewFlagSet("invocations", flag.ExitOnError)
-	port := fs.String("port", "7070", "server port (derives stateDir)")
-	name := fs.String("name", "", "stable handle of the server (derives stateDir)")
+	name := fs.String("name", "", "stable handle for this set of stubs (derives stateDir)")
 	stateDir := fs.String("stateDir", "", "explicit state directory")
 	_ = fs.Parse(args)
 
-	dir := resolveStateDir(*stateDir, *name, *port)
+	dir := resolveCommandStateDir(*stateDir, *name)
 	data, err := json.MarshalIndent(loadInvocations(dir), "", "  ")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -243,8 +240,7 @@ func runInvocations(args []string) {
 // runVerifyCommand asserts that a command was invoked, mirroring `verify` for HTTP.
 func runVerifyCommand(args []string) {
 	fs := flag.NewFlagSet("verify-command", flag.ExitOnError)
-	port := fs.String("port", "7070", "server port (derives stateDir)")
-	name := fs.String("name", "", "stable handle of the server (derives stateDir)")
+	name := fs.String("name", "", "stable handle for this set of stubs (derives stateDir)")
 	stateDir := fs.String("stateDir", "", "explicit state directory")
 	command := fs.String("command", "", "match by command")
 	timesStr := fs.String("times", "", "exact number of matches (omit = at least 1)")
@@ -252,7 +248,7 @@ func runVerifyCommand(args []string) {
 	fs.Var(&paramsContains, "params-contains", "require the parameters to contain this substring (repeatable, AND)")
 	_ = fs.Parse(args)
 
-	dir := resolveStateDir(*stateDir, *name, *port)
+	dir := resolveCommandStateDir(*stateDir, *name)
 	calls := loadInvocations(dir)
 	wantParams := nonEmpty(paramsContains)
 
@@ -307,4 +303,37 @@ func containsAll(value string, substrings []string) bool {
 		}
 	}
 	return true
+}
+
+// runResetCommands clears command stubs and invocations. Separate from `reset` because
+// command mocking has no server: addressing it by port would only invite starting one.
+func runResetCommands(args []string) {
+	fs := flag.NewFlagSet("reset-commands", flag.ExitOnError)
+	name := fs.String("name", "", "stable handle for this set of stubs (derives stateDir)")
+	stateDir := fs.String("stateDir", "", "explicit state directory")
+	stubs := fs.String("stubs", "", "clear command stubs only (true)")
+	invocations := fs.String("invocations", "", "clear recorded invocations only (true)")
+	_ = fs.Parse(args)
+
+	dir := resolveCommandStateDir(*stateDir, *name)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: cannot create state directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	clearStubs := *stubs == "true"
+	clearInvocations := *invocations == "true"
+	if !clearStubs && !clearInvocations {
+		clearStubs = true
+		clearInvocations = true
+	}
+
+	if clearStubs {
+		_ = saveCommandStubs(dir, []CommandStub{})
+		_ = writeCommandsAux4(dir, []CommandStub{})
+	}
+	if clearInvocations {
+		_ = saveInvocations(dir, []RecordedInvocation{})
+	}
+	fmt.Println("reset ok")
 }
