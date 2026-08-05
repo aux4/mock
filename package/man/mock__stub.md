@@ -38,7 +38,9 @@ The response body and response header values are interpolated against the incomi
 
 An unknown or unresolved placeholder collapses to the empty string — the literal `${...}` is never left behind. To emit a literal `${`, write `$${`. The stub author owns the surrounding JSON quoting, e.g. `--body '{"echo":"${body.text}"}'`.
 
-**Note:** an inline `--body '{"echo":"${body.text}"}'` reaches the stub store verbatim (single-quote it so the shell does not expand it). The literal-escape `$${` is the exception — aux4's own `$$` handling mangles it on the command line — so when you need a literal `${...}` in the response, supply the body with `--bodyFile` (read raw) instead of inline `--body`.
+**Note:** an inline `--body '{"echo":"${body.text}"}'` normally reaches the stub store verbatim (single-quote it so the shell does not expand it), and the mock resolves each `${...}` **once**, splicing the request value in without re-scanning it — so a nested placeholder never recurses inside the mock itself.
+
+**Important — supply `${body.*}` templates with `--bodyFile`, not inline `--body`.** The value of the inline `--body` flag passes through aux4's own recursive `${...}` variable resolution before it reaches the mock, and aux4's variable namespace includes a variable literally named `body` (the flag itself). So an inline `--body '{"channel":{"id":"${body.channel}"}}'` is expanded by **aux4** — `${body.channel}` resolves against the self-referential `body` flag value and blows up into `{"id":"{"id":"{"id":"…`. The same applies to `${body}` and to the literal-escape `$${`. When a response references the `${body.*}` namespace (or needs a literal `${`), put the body in a file and pass `--bodyFile` (or pipe it on stdin): file/stdin content is read straight from disk by the mock and reaches the single-pass resolver untouched. Templates that only reference `${path.*}`, `${query.*}` or `${header.*}` are safe inline.
 
 #### Request-matching predicates
 

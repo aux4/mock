@@ -221,6 +221,67 @@ curl -s http://localhost:18773/api/2/tweets/999
 {"which":"param","id":"999"}
 ```
 
+## single-pass: a placeholder nested under a same-named key does not recurse
+
+Regression for the slack/gmail case (MOCK-017). The response template nests
+`${body.channel}` inside an object whose key is also `channel`. The mock's
+interpolation is single pass — each placeholder is resolved against the request
+once and the resolved value is spliced in verbatim, so the output key name never
+feeds back into a body lookup and a resolved value is never re-scanned for more
+placeholders. The result must be well-formed JSON, not `{"id":"{"id":"...`.
+
+The body is loaded from a file (`--bodyFile`). A body whose placeholders sit in
+the `${body.*}` namespace must be supplied via `--bodyFile` (or stdin), not the
+inline `--body` flag: the `--body` value passes through aux4's own recursive
+`${...}` resolution, whose variable namespace also contains `body`, so an inline
+`${body.channel}` would be expanded by aux4 before it ever reaches the mock.
+`--bodyFile` content is read straight from disk by the mock and reaches the
+single-pass resolver untouched.
+
+```file:slack-body.json
+{"ok":true,"channel":{"id":"${body.channel}"}}
+```
+
+### should program a stub nesting ${body.channel} under a channel key
+
+```execute
+aux4 mock reset --port 18773 --stubs true
+aux4 mock stub --port 18773 --method POST --path /chat.postMessage --contentType application/json --bodyFile slack-body.json
+```
+
+```expect:partial
+stub POST /chat.postMessage -> 200
+```
+
+### should splice the request value once without recursing
+
+```execute
+curl -s -X POST http://localhost:18773/api/chat.postMessage -H 'Content-Type: application/json' -d '{"channel":"C123","text":"hi"}'
+```
+
+```expect
+{"ok":true,"channel":{"id":"C123"}}
+```
+
+### should not re-interpolate a resolved value that itself contains a placeholder
+
+The posted `raw` field is the literal string `${body.secret}`. A single pass
+splices it in as-is; it is never treated as a new placeholder to expand.
+
+```file:echo-body.json
+{"echoed":"${body.raw}"}
+```
+
+```execute
+aux4 mock reset --port 18773 --stubs true
+aux4 mock stub --port 18773 --method POST --path /echo --contentType application/json --bodyFile echo-body.json
+curl -s -X POST http://localhost:18773/api/echo -H 'Content-Type: application/json' -d '{"raw":"${body.secret}"}'
+```
+
+```expect:partial
+{"echoed":"${body.secret}"}
+```
+
 ## escaping a literal ${ with $${
 
 A body is loaded from a file so the literal `$${` reaches the store unmodified;

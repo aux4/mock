@@ -1,7 +1,7 @@
 {
   "scope": "aux4",
   "name": "mock",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Programmable HTTP mock server built on aux4/api for mocking external APIs in tests",
   "license": "Apache-2.0",
   "tags": [
@@ -170,54 +170,19 @@
         {
           "name": "preset",
           "execute": [
-            "${packageDir}/aux4-mock preset param(port) param(name) param(stateDir) param(accessToken:access-token) param(email) param(user) value(service)"
+            "profile:mock:preset"
           ],
           "help": {
-            "text": "Register a canned service preset (auth token + userinfo + error envelopes) on the running server",
-            "variables": [
-              {
-                "name": "service",
-                "text": "Service preset to register (google, microsoft, x, aws, oauth)",
-                "arg": true,
-                "options": [
-                  "google",
-                  "microsoft",
-                  "x",
-                  "aws",
-                  "oauth"
-                ]
-              },
-              {
-                "name": "port",
-                "text": "Port of the mock server (derives stateDir)",
-                "default": "7070"
-              },
-              {
-                "name": "name",
-                "text": "Stable handle of the server (derives stateDir; no --port needed)",
-                "default": ""
-              },
-              {
-                "name": "stateDir",
-                "text": "Explicit state directory",
-                "default": ""
-              },
-              {
-                "name": "accessToken",
-                "text": "Token value returned by the preset's token endpoint",
-                "default": "mock-access-token"
-              },
-              {
-                "name": "email",
-                "text": "Email returned in the userinfo/identity response",
-                "default": "sally@example.com"
-              },
-              {
-                "name": "user",
-                "text": "Display name returned in the userinfo/identity response",
-                "default": "Sally"
-              }
-            ]
+            "text": "Apply a service preset to a running mock. Presets are installable packages (community/mock-preset-<service>) that add commands here."
+          }
+        },
+        {
+          "name": "presets",
+          "execute": [
+            "${packageDir}/aux4-mock presets"
+          ],
+          "help": {
+            "text": "List the service presets available under 'mock preset' (from installed community/mock-preset-<service> packages)"
           }
         },
         {
@@ -548,6 +513,10 @@
           }
         }
       ]
+    },
+    {
+      "name": "mock:preset",
+      "commands": []
     }
   ]
 }

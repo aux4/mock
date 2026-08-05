@@ -1,68 +1,44 @@
 #### Description
 
-The `preset` command registers a canned set of stubs for a well-known service in one shot: its OAuth token endpoint, its bearer-gated userinfo/identity endpoint(s), and the matching unauthenticated error envelope. This lets a test stand up a service's auth dance with a single command and then stub only the specific business endpoints it actually cares about with `mock stub`.
+The `preset` command is the extension point for **service presets** — canned stub sets that stand up a real service's auth dance (OAuth token endpoint, bearer-gated userinfo/identity, and the matching `401` error envelope) in one command, so a test only has to stub the business endpoints it cares about.
 
-Presets are **additive** — they never clear existing stubs. You can register a preset and then layer business stubs on top (and vice versa); later `mock stub` calls for the service's real endpoints coexist with the preset. Re-running the same preset simply refreshes its own stubs (same replace-by-key semantics as `mock stub`).
+The core mock engine ships **no presets** and reserves **no service names**. `preset` is a pure routing command into the `mock:preset` profile, which is empty in core. Each preset is an installable package named `community/mock-preset-<service>` that declares a `<service>` command under `mock:preset`; installing it makes `aux4 mock preset <service>` available purely through aux4's `global.aux4` profile merge — the core is never modified and knows nothing about the service.
 
-Each identity endpoint is registered as **two** stubs on the same method+path: a happy-path stub gated on `Authorization: Bearer *` (any token) and a bare fallback that returns the service's `401` error envelope. So a request with a bearer token gets the identity; one without falls through to the realistic unauthenticated error.
+This means:
 
-#### Services
+- **Nothing is bundled, nothing is reserved.** You can ship (or override) your own `google`, `stripe`, `github`, … preset without the core claiming the name.
+- **Presets are ordinary aux4 commands.** A preset applies its stubs by calling `aux4 mock stub --port <port> ...` for each canned endpoint — no special core machinery.
+- **List what is installed** with `aux4 mock presets`.
 
-- **`google`** — `POST /token`, and `GET /oauth2/v2/userinfo` + `GET /oauth2/v3/userinfo` gated on a bearer token (unauth → `401` `{"error":{"code":401,"message":"…","status":"UNAUTHENTICATED"}}`). Registers 5 stubs.
-- **`microsoft`** — `POST /common/oauth2/v2.0/token` (concrete `common` tenant path), and Graph `GET /me` gated on a bearer token (unauth → `401` `{"error":{"code":"InvalidAuthenticationToken","message":"…"}}`). Registers 3 stubs.
-- **`x`** (Twitter) — `POST /2/oauth2/token`, and `GET /2/users/me` gated on a bearer token → `{"data":{"id","name","username"}}` (unauth → `401` `{"title","type","status":401}`). Registers 3 stubs.
-- **`aws`** — **minimal, clearly-labeled.** AWS does not use OAuth bearer auth (it uses SigV4 + per-service XML/JSON), so this preset only ships the STS `GetCallerIdentity` happy path: `POST /` whose request body contains `GetCallerIdentity` → an identity JSON. Full AWS mocking is out of scope for presets — stub the specific endpoints you need with `mock stub`. Registers 1 stub.
-- **`oauth`** (generic) — a provider-agnostic `POST /token` + bearer-gated `GET /userinfo` (unauth → `401` `{"error":"invalid_token",…}`), for services without a dedicated preset. Registers 3 stubs.
-
-#### Paths and base URLs
-
-The mock matches the request path exactly as aux4/api delivers it (no `/api` prefix, single leading slash). Presets stub each service's **real** path (`/token`, `/oauth2/v2/userinfo`, `/2/users/me`, …). Point the code-under-test's base URL at `http://localhost:<port>/api` and let it append the real path — the `/api` mount prefix is stripped before matching.
-
-**Microsoft tenant segment:** the real token path is `/{tenant}/oauth2/v2.0/token`. The preset stubs the concrete `/common/oauth2/v2.0/token`. Point the code-under-test's authority/base URL so the tenant lands on `common` (the multi-tenant default), or register a tenant-specific token path yourself with `mock stub`.
-
-#### Overrides
-
-All overrides are optional with sane defaults; only a couple of common ones are exposed:
-
---accessToken   Token value returned by the token endpoint (default: `mock-access-token`)
---email         Email in the userinfo/identity response (default: `sally@example.com`)
---user          Display name in the userinfo/identity response (default: `Sally`; X derives the handle from it)
+To see what a given preset does and which flags it accepts, install it and run `aux4 mock preset <service> --help`.
 
 #### Usage
 
 ```bash
-aux4 mock preset <service> [--port <port>] [--name <handle>] [--stateDir <dir>] \
-  [--accessToken <token>] [--email <email>] [--user <name>]
+aux4 aux4 pkger install community/mock-preset-<service>
+aux4 mock preset <service> [--port <port>] [preset-specific flags]
 ```
 
-<service>       One of: google, microsoft, x, aws, oauth (required)
---port          Port of the running mock server, derives stateDir (default: 7070)
---name          Address the server by handle instead of port (stateDir ${TMPDIR:-/tmp}/aux4-mock/name-<handle>)
---stateDir      Explicit state directory
---accessToken   Token returned by the token endpoint (default: mock-access-token)
---email         Email in the userinfo/identity response (default: sally@example.com)
---user          Display name in the userinfo/identity response (default: Sally)
+With nothing installed, `aux4 mock preset <service>` reports `Command not found: <service>` — install the matching `community/mock-preset-<service>` package first.
+
+#### Writing your own preset package
+
+A preset package is a pure-`.aux4` package that depends on `aux4/mock`, re-declares the `mock` profile with a `preset` routing command, and adds a `<service>` command under `mock:preset` whose `execute` registers stubs via `aux4 mock stub`. See the README section "Writing your own preset package" and the reference implementation `community/mock-preset-google`.
 
 #### Example
 
-Stand up Google's auth dance, then layer only the Gmail send endpoint the test exercises:
-
 ```bash
+aux4 aux4 pkger install community/mock-preset-google
 aux4 mock start --port 8080
 aux4 mock preset google --port 8080
-aux4 mock stub --port 8080 --method POST \
-  --path /gmail/v1/users/me/messages/send \
-  --status 200 --body '{"id":"msg_1","labelIds":["SENT"]}'
 ```
 
 ```text
-preset google -> 5 stub(s)
-  POST /token -> 200
-  GET /oauth2/v2/userinfo -> 200 (gated)
-  GET /oauth2/v2/userinfo -> 401
-  GET /oauth2/v3/userinfo -> 200 (gated)
-  GET /oauth2/v3/userinfo -> 401
-stub POST /gmail/v1/users/me/messages/send -> 200
+stub POST /token -> 200
+stub GET /oauth2/v2/userinfo -> 200
+stub GET /oauth2/v2/userinfo -> 401
+stub GET /oauth2/v3/userinfo -> 200
+stub GET /oauth2/v3/userinfo -> 401
 ```
 
 A request with a bearer token gets the identity; without one it gets Google's `401` envelope:
