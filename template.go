@@ -119,7 +119,7 @@ func interpolate(s string, params map[string]string, event apiGatewayEvent, full
 				break
 			}
 			expr := strings.TrimSpace(s[i+2 : i+2+end])
-			out.WriteString(resolvePlaceholder(expr, params, event, fullPath, bodyJSON))
+			out.WriteString(resolveWithDefault(expr, params, event, fullPath, bodyJSON))
 			i = i + 2 + end + 1
 			continue
 		}
@@ -127,6 +127,20 @@ func interpolate(s string, params map[string]string, event apiGatewayEvent, full
 		i++
 	}
 	return out.String()
+}
+
+// resolveWithDefault supports "${expr:-fallback}": when expr resolves to the
+// empty string (a missing field, header, or param) the literal fallback is
+// used instead. The fallback cannot contain "}" -- the placeholder ends at the
+// first closing brace.
+func resolveWithDefault(expr string, params map[string]string, event apiGatewayEvent, fullPath string, bodyJSON interface{}) string {
+	if idx := strings.Index(expr, ":-"); idx >= 0 {
+		if v := resolvePlaceholder(strings.TrimSpace(expr[:idx]), params, event, fullPath, bodyJSON); v != "" {
+			return v
+		}
+		return expr[idx+2:]
+	}
+	return resolvePlaceholder(expr, params, event, fullPath, bodyJSON)
 }
 
 // resolvePlaceholder resolves a single placeholder expression to its value, or
