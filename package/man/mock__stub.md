@@ -54,6 +54,16 @@ This lets several stubs coexist on the same method+path. Matching is **most-spec
 
 The predicates are stored in the stub's `match` object with the shape `{ "headers": { … }, "query": { … }, "bodyContains": "…" }`. A stub with no predicates omits `match` entirely.
 
+#### Stateful effects (`--then`/`--thenFile`)
+
+By default the mock is static: a stub always returns the same response regardless of earlier requests. `--then` (inline JSON array) or `--thenFile` (JSON array read from a file) attaches one or more follow-up stubs that get upserted into the store at the moment THIS stub serves a response — so a later request can observe what the earlier one did (a DELETE that makes a later GET 404, a PATCH that changes what a later GET returns, a POST that makes a later GET-by-id succeed).
+
+Each entry is a stub object (`method`/`path`/`status`/`headers`/`body`/`match`). Its `method`/`path`/`headers`/`body` are interpolated against the triggering request using the same `${path.*}`/`${query.*}`/`${header.*}`/`${body}`/`${body.<dotted.path>}` placeholders a response body supports. The built stub is then upserted with the same replace semantics as this command (same method + path + predicate set replaces in place) — so a then-stub naturally replaces whatever previously stood at that slot. A request field the then-stub's body doesn't reference, or one the request never sent, resolves to an empty string like any other unresolved placeholder.
+
+**Prefer `--thenFile` over inline `--then`.** The placeholder names (`path`, `body`, `query`, `header`) are also this command's own flag names, so an inline `--then` JSON string containing `${path.*}`/`${body.*}` risks being expanded by aux4's own `${...}` resolution before the mock ever sees it — the same reason `--bodyFile` exists for response bodies. `--thenFile` content is read straight off disk.
+
+A then-stub can carry `${...}` placeholders meant to survive for **its own** later responses (once it becomes an ordinary stored stub) by escaping them as `$${...}`: this first interpolation pass (against the triggering request) collapses `$${` to a literal `${`, and the stub serves that literal verbatim until a later request interpolates it again. The `match` predicates and any nested `then` on a then-stub are copied as-is, not interpolated — they describe how/whether that stub fires later, not data from the current request.
+
 #### Usage
 
 ```bash
@@ -75,6 +85,8 @@ aux4 mock stub --path <path> [--method <method>] [--status <code>] \
 --when-header         Match only when a request header equals key=value; trailing * is a wildcard (repeatable)
 --when-query          Match only when a request query param equals key=value (repeatable)
 --when-body-contains  Match only when the request body contains this substring
+--then                Inline JSON array of follow-up stubs to upsert when this stub serves a response
+--thenFile            File to read the --then JSON array from (preferred when it contains ${path.*}/${body.*} placeholders)
 --port                Port of the mock server, derives stateDir (default: 7070)
 --name                Address the server by handle instead of port (stateDir ${TMPDIR:-/tmp}/aux4-mock/name-<handle>)
 --stateDir            Explicit state directory
@@ -130,4 +142,40 @@ curl -s http://localhost:8080/api/2/tweets/999
 curl -s -X POST http://localhost:8080/api/2/tweets \
   -H 'Content-Type: application/json' -d '{"text":"hello sally"}'
 # {"data":{"id":"1","text":"hello sally"}}
+```
+
+#### Example: a DELETE that makes a later GET 404
+
+```bash
+aux4 mock stub --port 8080 --method GET --path /events/evt-1 \
+  --status 200 --body '{"id":"evt-1","status":"confirmed"}'
+```
+
+`delete-then.json`:
+
+```json
+[
+  {
+    "method": "GET",
+    "path": "/events/${path.id}",
+    "status": 404,
+    "body": "{\"error\":{\"code\":404,\"message\":\"Not Found\"}}"
+  }
+]
+```
+
+```bash
+aux4 mock stub --port 8080 --method DELETE --path /events/{id} --status 204 \
+  --thenFile delete-then.json
+```
+
+```text
+stub DELETE /events/{id} -> 204
+```
+
+```bash
+curl -s -X DELETE http://localhost:8080/api/events/evt-1
+curl -s -w "\n%{http_code}" http://localhost:8080/api/events/evt-1
+# {"error":{"code":404,"message":"Not Found"}}
+# 404
 ```

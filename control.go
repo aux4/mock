@@ -48,11 +48,37 @@ func runStub(args []string) {
 	var whenQueries stringList
 	fs.Var(&whenQueries, "when-query", "request query predicate key=value (repeatable)")
 	whenBodyContains := fs.String("when-body-contains", "", "request body substring predicate")
+	then := fs.String("then", "", "inline JSON array of follow-up stubs to upsert when this stub serves a response (see README)")
+	thenFile := fs.String("thenFile", "", "file to read the JSON array of follow-up stubs from")
 	_ = fs.Parse(args)
 
 	if *path == "" {
 		fmt.Fprintln(os.Stderr, "Error: --path is required")
 		os.Exit(1)
+	}
+
+	// Resolve --then: inline > file. A then-stub's method/path/body routinely
+	// needs ${path.x}/${body.x} placeholders, and those variable names collide
+	// with this very command's own "path"/"body" flags — passing the JSON
+	// inline risks aux4's own recursive ${...} resolution eating them before
+	// the mock ever sees them (same reason --bodyFile exists for the response
+	// body). --thenFile is read straight off disk, untouched by aux4.
+	resolvedThen := *then
+	if strings.TrimSpace(resolvedThen) == "" && *thenFile != "" {
+		data, err := os.ReadFile(*thenFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading --thenFile: %v\n", err)
+			os.Exit(1)
+		}
+		resolvedThen = string(data)
+	}
+
+	var thenStubs []Stub
+	if strings.TrimSpace(resolvedThen) != "" {
+		if err := json.Unmarshal([]byte(resolvedThen), &thenStubs); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: --then/--thenFile is not a valid JSON array of stubs: %v\n", err)
+			os.Exit(2)
+		}
 	}
 
 	dir := resolveStateDir(*stateDir, *name, *port)
@@ -109,6 +135,7 @@ func runStub(args []string) {
 		Headers: respHeaders,
 		Body:    resolvedBody,
 		Match:   match,
+		Then:    thenStubs,
 	}
 
 	unlock, err := acquireLock(dir)
