@@ -1,7 +1,7 @@
 {
   "scope": "aux4",
   "name": "mock",
-  "version": "0.0.5",
+  "version": "0.1.0",
   "description": "Programmable HTTP mock server built on aux4/api for mocking external APIs in tests",
   "license": "Apache-2.0",
   "tags": [
@@ -92,7 +92,7 @@
         {
           "name": "stub",
           "execute": [
-            "stdin:${packageDir}/aux4-mock stub param(port) param(name) param(stateDir) param(method) param(path) param(status) param(body) param(bodyFile) param(contentType) param(header**) param(when-header**) param(when-query**) param(when-body-contains)"
+            "stdin:${packageDir}/aux4-mock stub param(port) param(name) param(stateDir) param(method) param(path) param(status) param(body) param(bodyFile) param(contentType) param(header**) param(when-header**) param(when-query**) param(when-body-contains) param(then) param(thenFile)"
           ],
           "help": {
             "text": "Define or replace a stub response (matched by method + path, optional request predicates)",
@@ -162,6 +162,16 @@
               {
                 "name": "when-body-contains",
                 "text": "Only match when the request body contains this substring",
+                "default": ""
+              },
+              {
+                "name": "then",
+                "text": "Inline JSON array of follow-up stubs to upsert into the store when this stub serves a response, so later requests observe the change (e.g. a DELETE that makes a later GET 404). Each entry is a stub object (method/path/status/headers/body/match) whose method/path/headers/body are interpolated against the triggering request using the same ${path.x}/${query.x}/${header.x}/${body}/${body.a.b} placeholders; write $${...} to keep a literal ${...} for the stub's own later responses. Prefer --thenFile when the JSON contains ${path.*}/${body.*} placeholders (see README)",
+                "default": ""
+              },
+              {
+                "name": "thenFile",
+                "text": "File to read the --then JSON array from. Use this instead of --then whenever the JSON contains ${path.*}/${body.*}/... placeholders: those names collide with this command's own variables, so passing them inline risks aux4 resolving them before the mock sees them",
                 "default": ""
               }
             ]

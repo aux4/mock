@@ -110,6 +110,14 @@ func runRespond(stateDir string) {
 		for k, v := range r.stub.Headers {
 			headers[k] = interpolate(v, params, event, path)
 		}
+		// Apply side effects (MOCK-STATE-001) before responding: a stub with
+		// `then` upserts one or more follow-up stubs into the store, built by
+		// interpolating THIS request into each one, so a later request (e.g. the
+		// GET after a DELETE) observes the change. The triggering response itself
+		// is unaffected by this.
+		if len(r.stub.Then) > 0 {
+			applyThen(stateDir, r.stub.Then, params, event, path)
+		}
 		writeResponse(apiGatewayResponse{
 			StatusCode: status,
 			Headers:    headers,
@@ -199,4 +207,54 @@ func valueMatches(pattern, actual string) bool {
 		return strings.HasPrefix(actual, strings.TrimSuffix(pattern, "*"))
 	}
 	return pattern == actual
+}
+
+// applyThen builds and upserts the follow-up stubs attached to the stub that
+// just served this request. Each then-stub's method/path/headers/body is
+// interpolated against the SAME request (params/event/path) that triggered it
+// — the identical ${path.x}/${query.x}/${header.x}/${body}/${body.a.b}
+// placeholders a response body supports. A then-stub that itself carries
+// `${...}` placeholders meant to survive for ITS OWN future responses (once it
+// becomes an ordinary stored stub) must write them as `$${...}`: this first
+// interpolation pass collapses `$${` to a literal `${`, and the stub serves
+// that literal text verbatim until a later request interpolates it again. The
+// `match` predicates and any nested `then` of a then-stub are stored as-is
+// (not interpolated) — they describe how/whether THAT stub fires later, not
+// data from the current request. Upsert reuses the normal method+path+predicate
+// replace key, so a then-stub naturally replaces a prior stub standing at the
+// same slot (e.g. the GET that previously returned the now-deleted resource).
+func applyThen(stateDir string, thenStubs []Stub, params map[string]string, event apiGatewayEvent, fullPath string) {
+	built := make([]Stub, 0, len(thenStubs))
+	for _, t := range thenStubs {
+		method := strings.ToUpper(strings.TrimSpace(interpolate(t.Method, params, event, fullPath)))
+		path := normalizePath(interpolate(t.Path, params, event, fullPath))
+		body := interpolate(t.Body, params, event, fullPath)
+
+		var headers map[string]string
+		if len(t.Headers) > 0 {
+			headers = map[string]string{}
+			for k, v := range t.Headers {
+				headers[k] = interpolate(v, params, event, fullPath)
+			}
+		}
+		if (headers == nil || headers["Content-Type"] == "") && looksLikeJSON(body) {
+			if headers == nil {
+				headers = map[string]string{}
+			}
+			if _, ok := headers["Content-Type"]; !ok {
+				headers["Content-Type"] = "application/json"
+			}
+		}
+
+		built = append(built, Stub{
+			Method:  method,
+			Path:    path,
+			Status:  t.Status,
+			Headers: headers,
+			Body:    body,
+			Match:   t.Match,
+			Then:    t.Then,
+		})
+	}
+	_ = registerStubs(stateDir, built)
 }

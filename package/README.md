@@ -172,6 +172,72 @@ curl -s -X POST http://localhost:8080/api/login
 
 `--when-query` and `--when-body-contains` select between stubs on the same path the same way.
 
+### Stateful effects (`--then`)
+
+By default the mock is **static**: a stub always returns the same response, no matter what earlier requests did. `--then` lets a stub carry one or more follow-up stubs that get programmed into the store at the moment this stub serves a response — so a later request can observe the effect of an earlier one (a DELETE that makes a later GET 404, a PATCH that changes what a later GET returns, a POST that makes a later GET-by-id succeed).
+
+```bash
+aux4 mock stub --port 8080 --method GET --path /events/evt-1 \
+  --status 200 --body '{"id":"evt-1","status":"confirmed"}'
+
+aux4 mock stub --port 8080 --method DELETE --path /events/{id} --status 204 \
+  --thenFile delete-then.json
+```
+
+`delete-then.json`:
+
+```json
+[
+  {
+    "method": "GET",
+    "path": "/events/${path.id}",
+    "status": 404,
+    "body": "{\"error\":{\"code\":404,\"message\":\"Not Found\"}}"
+  }
+]
+```
+
+```bash
+curl -s http://localhost:8080/api/events/evt-1
+# {"id":"evt-1","status":"confirmed"}
+
+curl -s -X DELETE http://localhost:8080/api/events/evt-1
+
+curl -s -w "\n%{http_code}" http://localhost:8080/api/events/evt-1
+# {"error":{"code":404,"message":"Not Found"}}
+# 404
+```
+
+Each entry in `--then`/`--thenFile` is a stub object (`method`/`path`/`status`/`headers`/`body`/`match`). Its `method`/`path`/`headers`/`body` are interpolated against the **triggering request** using the same `${path.*}`/`${query.*}`/`${header.*}`/`${body}`/`${body.<dotted.path>}` placeholders a response body supports — so `${path.id}` above resolves to the id the DELETE actually hit. The built stub is then upserted into the store with the same replace semantics as `mock stub` (same method + path + predicate set replaces in place), which is exactly how the follow-up GET above comes to replace the original `200` stub.
+
+A PATCH/PUT can merge part of the request into a response shaped like the updated resource:
+
+```json
+[
+  {
+    "method": "GET",
+    "path": "/events/${path.id}",
+    "status": 200,
+    "body": "{\"id\":\"${path.id}\",\"start\":{\"dateTime\":\"${body.start.dateTime}\"}}"
+  }
+]
+```
+
+A field the request didn't send (e.g. `${body.summary}` when the PATCH only touched `start`) resolves to an empty string, same as any other unresolved placeholder — build the then-stub's body from exactly the fields you expect the request to carry.
+
+**Use `--thenFile`, not inline `--then`, whenever the JSON contains placeholders.** The placeholder names (`path`, `body`, `query`, `header`) collide with this same command's own flags, so an inline `--then` value risks being expanded by aux4's own `${...}` variable resolution before the mock ever sees it — the identical reason `--bodyFile` exists for response bodies (see the warning above). `--thenFile` content is read straight off disk, untouched.
+
+A then-stub can itself carry `${...}` placeholders meant to survive for **its own** later responses (once it becomes an ordinary stored stub) — escape them as `$${...}`. This first interpolation pass (against the triggering request) collapses `$${` to a literal `${`, and the stub serves that literal text verbatim until a later request interpolates it again:
+
+```json
+[
+  { "method": "POST", "path": "/events/${path.id}/echo", "status": 200,
+    "body": "{\"echoedLater\":\"$${body.text}\"}" }
+]
+```
+
+The `match` predicates and any nested `then` on a then-stub are stored as-is, not interpolated — they describe how/whether that stub fires later, not data pulled from the current request.
+
 ## Mocking real services (presets)
 
 Most real APIs make you mock the same boilerplate before you can test anything interesting: an OAuth token endpoint, a userinfo/identity endpoint that returns `401` without a bearer token, and the service's specific error envelope. A **service preset** registers all of that in one command, so your test only has to stub the business endpoints it actually cares about.
@@ -370,10 +436,11 @@ aux4 mock stub --path <path> [--method ANY] [--status 200] \
   [--body <json> | --bodyFile <file> | <stdin>] \
   [--header key=value ...] [--contentType <type>] \
   [--when-header key=value ...] [--when-query key=value ...] \
-  [--when-body-contains <substring>] [--port 7070]
+  [--when-body-contains <substring>] \
+  [--then <json> | --thenFile <file>] [--port 7070]
 ```
 
-Defines or replaces a stub, matched by (method, path, predicate set). The body may be given inline with `--body`, read from `--bodyFile`, or piped on stdin. When the body looks like JSON and no `--contentType` is given, `Content-Type: application/json` is set automatically. Add `--when-header`, `--when-query`, or `--when-body-contains` predicates to gate the stub on the incoming request — see [Request-matching predicates](#request-matching-predicates).
+Defines or replaces a stub, matched by (method, path, predicate set). The body may be given inline with `--body`, read from `--bodyFile`, or piped on stdin. When the body looks like JSON and no `--contentType` is given, `Content-Type: application/json` is set automatically. Add `--when-header`, `--when-query`, or `--when-body-contains` predicates to gate the stub on the incoming request — see [Request-matching predicates](#request-matching-predicates). Add `--then`/`--thenFile` to program follow-up stubs when this one serves a response — see [Stateful effects](#stateful-effects---then).
 
 ### mock preset
 

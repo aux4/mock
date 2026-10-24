@@ -20,6 +20,7 @@ type Stub struct {
 	Headers map[string]string `json:"headers,omitempty"`
 	Body    string            `json:"body"`
 	Match   *StubMatch        `json:"match,omitempty"`
+	Then    []Stub            `json:"then,omitempty"`
 }
 
 // StubMatch holds the request-matching predicates for a stub (MOCK-003).
