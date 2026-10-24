@@ -1,7 +1,7 @@
 {
   "scope": "aux4",
   "name": "mock",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Programmable HTTP mock server built on aux4/api for mocking external APIs in tests",
   "license": "Apache-2.0",
   "tags": [
