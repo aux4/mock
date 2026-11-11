@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - dev
     paths:
       - '**'
       - '!.github/**'
@@ -23,8 +24,12 @@ on:
           - minor
           - major
 
+# dev -> dev hub, main -> prod hub (pkger treats an empty value as the prod default)
+env:
+  AUX4_REGISTRY_URL: ${{ github.ref_name == 'dev' && 'https://dev.api.hub.aux4.io/v1/packages' || '' }}
+
 concurrency:
-  group: publish-package
+  group: publish-package-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -83,8 +88,9 @@ jobs:
         with:
           go-version: '1.23'
 
-      - name: Mint hub publish token
+      - name: Mint prod hub publish token
         id: mint
+        if: github.ref_name == 'main'
         env:
           CLIENT_ID: ${{ secrets.AUX4_PUBLISHER_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.AUX4_PUBLISHER_CLIENT_SECRET }}
@@ -93,10 +99,25 @@ jobs:
           TOK=$(curl -sf -u "$CLIENT_ID:$CLIENT_SECRET" -d grant_type=client_credentials https://sso.aux4.io/token | jq -r '.access_token // empty')
           if [ -z "$TOK" ]; then echo "::error::client_credentials mint returned no access_token"; exit 1; fi
           echo "::add-mask::$TOK"; echo "token=$TOK" >> "$GITHUB_OUTPUT"
+
+      # The dev hub validates against dev SSO, so a prod token is rejected there.
+      - name: Mint dev hub publish token
+        id: devmint
+        if: github.ref_name == 'dev'
+        env:
+          CLIENT_ID: ${{ secrets.AUX4_DEV_PUBLISHER_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.AUX4_DEV_PUBLISHER_CLIENT_SECRET }}
+        run: |
+          if [ -z "$CLIENT_ID" ] || [ -z "$CLIENT_SECRET" ]; then echo "::error::dev publisher client id/secret not set"; exit 1; fi
+          TOK=$(curl -sf -u "$CLIENT_ID:$CLIENT_SECRET" -d grant_type=client_credentials https://dev.sso.aux4.io/token | jq -r '.access_token // empty')
+          if [ -z "$TOK" ]; then echo "::error::client_credentials mint returned no access_token from dev SSO"; exit 1; fi
+          echo "::add-mask::$TOK"; echo "token=$TOK" >> "$GITHUB_OUTPUT"
+
       - uses: aux4/action@v1
         with:
           command: publish
           level: ${{ inputs.level || 'patch' }}
           build_command: aux4 builder all
-          aux4_token: ${{ steps.mint.outputs.token }}
+          aux4_token: ${{ github.ref_name == 'dev' && steps.devmint.outputs.token || steps.mint.outputs.token }}
+          registry: ${{ github.ref_name == 'dev' && 'https://dev.api.hub.aux4.io/v1/packages' || '' }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
